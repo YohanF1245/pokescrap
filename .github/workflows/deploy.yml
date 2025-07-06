@@ -1,0 +1,51 @@
+name: Deploy Pokemon Shasse to PythonAnywhere
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install deployment dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
+
+    - name: Deploy to PythonAnywhere
+      env:
+        PA_USERNAME: ${{ secrets.PA_USERNAME }}
+        PA_API_TOKEN: ${{ secrets.PA_API_TOKEN }}
+      run: |
+        python deploy_pa.py
+
+    - name: Deployment Summary
+      run: |
+        echo "🎯 Déploiement Pokemon Shasse Dashboard terminé"
+        echo "🌟 Fichiers inclus:"
+        echo "  ✅ web_server.py (serveur Flask)"
+        echo "  ✅ database_v2.py (gestion BDD)"
+        echo "  ✅ pokemon_shasse.db (base de données)"
+        echo "  ✅ templates/ (pages HTML)"
+        echo "  ✅ static/ (CSS/JS)"
+        echo "  ✅ assets/ (sprites Pokemon)"
+        echo "  ✅ requirements.txt (dépendances)"
+        echo ""
+        echo "🚫 Fichiers exclus:"
+        echo "  ❌ Scripts de scraping"
+        echo "  ❌ Tests et développement"
+        echo "  ❌ Documentation"
+        echo ""
+        echo "🔗 Accès: https://${{ secrets.PA_USERNAME }}.pythonanywhere.com" 
