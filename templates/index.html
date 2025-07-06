@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pokemon Shasse Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="background-animation"></div>
+    
+    <header class="header">
+        <div class="container">
+            <div class="logo">
+                <i class="fas fa-database"></i>
+                <span>Pokemon Shasse Dashboard</span>
+            </div>
+            <div class="last-update">
+                <i class="fas fa-sync-alt" id="refresh-icon"></i>
+                <span id="last-update">Chargement...</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="container">
+            <!-- Statistiques principales -->
+            <section class="stats-overview">
+                <div class="stat-card pokemon-total">
+                    <div class="stat-icon">
+                        <i class="fas fa-dragon"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Total Pokemon</h3>
+                        <div class="stat-number" id="total-pokemon">0</div>
+                    </div>
+                </div>
+
+                <div class="stat-card sprites-downloaded">
+                    <div class="stat-icon">
+                        <i class="fas fa-images"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Sprites Téléchargés</h3>
+                        <div class="stat-number" id="sprites-downloaded">0</div>
+                    </div>
+                </div>
+
+                <div class="stat-card download-progress">
+                    <div class="stat-icon">
+                        <i class="fas fa-download"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Progression</h3>
+                        <div class="stat-number" id="download-percentage">0%</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-fill"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stat-card forms-total">
+                    <div class="stat-icon">
+                        <i class="fas fa-shapes"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Formes Différentes</h3>
+                        <div class="stat-number" id="total-forms">0</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Graphiques et détails -->
+            <section class="dashboard-grid">
+                <!-- Statistiques par génération -->
+                <div class="dashboard-card">
+                    <h3><i class="fas fa-chart-bar"></i> Progression par Génération</h3>
+                    <div class="generation-stats" id="generation-stats">
+                        <!-- Généré dynamiquement -->
+                    </div>
+                </div>
+
+                <!-- Top formes -->
+                <div class="dashboard-card">
+                    <h3><i class="fas fa-trophy"></i> Formes les Plus Communes</h3>
+                    <div class="top-forms" id="top-forms">
+                        <!-- Généré dynamiquement -->
+                    </div>
+                </div>
+
+                <!-- Pokemon récents -->
+                <div class="dashboard-card">
+                    <h3><i class="fas fa-clock"></i> Derniers Pokemon Ajoutés</h3>
+                    <div class="recent-pokemon" id="recent-pokemon">
+                        <!-- Généré dynamiquement -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Galerie de sprites -->
+            <section class="sprite-gallery">
+                <h2><i class="fas fa-images"></i> Galerie des Sprites</h2>
+                <div class="generation-tabs" id="generation-tabs">
+                    <!-- Généré dynamiquement -->
+                </div>
+                <div class="sprite-grid" id="sprite-grid">
+                    <!-- Généré dynamiquement -->
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Modal pour affichage détaillé des sprites -->
+    <div id="sprite-modal" class="modal">
+        <div class="modal-content">
+            <span id="modal-close" class="close">&times;</span>
+            <div class="modal-info">
+                <img id="modal-image" src="" alt="">
+                <h3 id="modal-pokemon-name"></h3>
+                <p id="modal-pokemon-details"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal pour les détails complets du Pokemon -->
+    <div id="pokemon-details-modal" class="modal details-modal">
+        <div class="modal-content details-content">
+            <span id="details-modal-close" class="close">&times;</span>
+            
+            <div class="pokemon-header">
+                <div class="pokemon-images">
+                    <img id="details-sprite" src="" alt="" class="details-sprite">
+                    <img id="details-hq-image" src="" alt="" class="details-hq-image">
+                </div>
+                <div class="pokemon-info">
+                    <h2 id="details-pokemon-name"></h2>
+                    <div class="pokemon-number">#<span id="details-pokemon-number"></span></div>
+                    <div class="pokemon-generation">Génération <span id="details-pokemon-generation"></span></div>
+                    <div id="details-pokemon-forms" class="pokemon-forms"></div>
+                    <div id="details-shiny-lock" class="shiny-lock-indicator"></div>
+                </div>
+            </div>
+            
+            <div class="pokemon-description">
+                <p id="details-pokemon-description"></p>
+            </div>
+            
+            <div class="pokemon-details-grid">
+                <div class="details-section">
+                    <h3><i class="fas fa-gamepad"></i> Jeux disponibles</h3>
+                    <div id="details-games" class="details-list"></div>
+                </div>
+                
+                <div class="details-section">
+                    <h3><i class="fas fa-crosshairs"></i> Méthodes de chasse</h3>
+                    <div id="details-hunt-methods" class="details-list"></div>
+                </div>
+                
+                <div class="details-section">
+                    <h3><i class="fas fa-map-marker-alt"></i> Localisations</h3>
+                    <div id="details-locations" class="details-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal pour les Pokemon manquants par génération -->
+    <div id="missing-pokemon-modal" class="modal missing-modal">
+        <div class="modal-content missing-content">
+            <span id="missing-modal-close" class="close">&times;</span>
+            
+            <div class="missing-header">
+                <h2>Pokemon Manquants - <span id="missing-generation"></span></h2>
+                <p>Pokemon sans sprite dans cette génération</p>
+            </div>
+            
+            <div class="missing-pokemon-grid" id="missing-pokemon-list">
+                <!-- Généré dynamiquement -->
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html> 
