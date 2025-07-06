@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ pokemon.name }} - Pokemon Shasse Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        /* Styles spécifiques pour la page Pokemon */
+        .pokemon-detail-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+        
+        .pokemon-header {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 30px;
+            align-items: flex-start;
+        }
+        
+        .pokemon-sprites {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            align-items: center;
+        }
+        
+        .sprite-container {
+            position: relative;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease;
+        }
+        
+        .sprite-container:hover {
+            transform: scale(1.05);
+        }
+        
+        .sprite-normal {
+            width: 200px;
+            height: 200px;
+            object-fit: contain;
+            border-radius: 10px;
+        }
+        
+        .sprite-hq {
+            width: 250px;
+            height: 250px;
+            object-fit: contain;
+            border-radius: 10px;
+        }
+        
+        .sprite-label {
+            text-align: center;
+            margin-top: 10px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .pokemon-info {
+            flex: 2;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border-radius: 15px;
+            padding: 25px;
+            color: white;
+        }
+        
+        .pokemon-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2.5em;
+            font-weight: 900;
+            margin-bottom: 15px;
+            text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.5);
+        }
+        
+        .pokemon-number {
+            font-size: 1.3em;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+        
+        .pokemon-generation {
+            font-size: 1.1em;
+            opacity: 0.8;
+            margin-bottom: 15px;
+        }
+        
+        .shiny-lock-indicator {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 25px;
+            font-size: 0.9em;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        
+        .shiny-lock-yes {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+        }
+        
+        .shiny-lock-no {
+            background: linear-gradient(135deg, #4ecdc4, #44a08d);
+        }
+        
+        .info-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .info-section h3 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.3em;
+            margin-bottom: 10px;
+            color: #fff;
+        }
+        
+        .games-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .game-tag {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+        
+        .methods-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .method-item {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 10px;
+            border-radius: 8px;
+            border-left: 4px solid #ffd700;
+        }
+        
+        .method-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .method-description {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        .generations-section {
+            margin-top: 40px;
+        }
+        
+        .generations-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2em;
+            text-align: center;
+            margin-bottom: 30px;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .generation-block {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .generation-header {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .methods-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .methods-table th {
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            padding: 12px 15px;
+            text-align: left;
+            font-weight: bold;
+        }
+        
+        .methods-table td {
+            padding: 10px 15px;
+            color: #fff;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .methods-table tr:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .probability-cell {
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .no-data {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.7);
+            font-style: italic;
+            padding: 20px;
+        }
+        
+        .back-button {
+            display: inline-block;
+            margin-bottom: 20px;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: bold;
+            transition: transform 0.3s ease;
+        }
+        
+        .back-button:hover {
+            transform: scale(1.05);
+            text-decoration: none;
+            color: white;
+        }
+        
+        @media (max-width: 768px) {
+            .pokemon-header {
+                flex-direction: column;
+                text-align: center;
+            }
+            
+            .pokemon-sprites {
+                order: 2;
+            }
+            
+            .pokemon-info {
+                order: 1;
+            }
+            
+            .methods-table {
+                font-size: 0.9em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="background-animation"></div>
+    
+    <div class="pokemon-detail-container">
+        <a href="{{ url_for('index') }}" class="back-button">
+            <i class="fas fa-arrow-left"></i> Retour au Dashboard
+        </a>
+        
+        <!-- En-tête avec sprites et informations -->
+        <div class="pokemon-header">
+            <!-- Sprites à gauche -->
+            <div class="pokemon-sprites">
+                <div class="sprite-container">
+                    {% if pokemon.sprite_url %}
+                        <img src="{{ url_for('serve_assets', filename=pokemon.sprite_url.replace('assets/', '').replace('assets\\', '').replace('\\', '/')) }}" 
+                             alt="{{ pokemon.name }} Sprite" 
+                             class="sprite-normal"
+                             onerror="this.src='{{ url_for('static', filename='placeholder.svg') }}'">
+                    {% else %}
+                        <img src="{{ url_for('static', filename='placeholder.svg') }}" 
+                             alt="{{ pokemon.name }} Sprite" 
+                             class="sprite-normal">
+                    {% endif %}
+                    <div class="sprite-label">Sprite Shiny</div>
+                </div>
+                
+                <div class="sprite-container">
+                    {% if pokemon.high_quality_image %}
+                        <img src="{{ url_for('serve_assets', filename=pokemon.high_quality_image.replace('assets/', '').replace('assets\\', '').replace('\\', '/')) }}" 
+                             alt="{{ pokemon.name }} Image HQ" 
+                             class="sprite-hq"
+                             onerror="this.src='{{ url_for('static', filename='placeholder.svg') }}'">
+                    {% else %}
+                        <img src="{{ url_for('static', filename='placeholder.svg') }}" 
+                             alt="{{ pokemon.name }} Image HQ" 
+                             class="sprite-hq">
+                    {% endif %}
+                    <div class="sprite-label">Image Haute Qualité</div>
+                </div>
+            </div>
+            
+            <!-- Informations à droite -->
+            <div class="pokemon-info">
+                <h1 class="pokemon-title">{{ pokemon.name }}</h1>
+                <div class="pokemon-number">#{{ pokemon.number if pokemon.number else 'XXX' }}</div>
+                <div class="pokemon-generation">Génération {{ pokemon.generation }}</div>
+                
+                <div class="shiny-lock-indicator {{ 'shiny-lock-yes' if pokemon.is_shiny_lock else 'shiny-lock-no' }}">
+                    {% if pokemon.is_shiny_lock %}
+                        <i class="fas fa-lock"></i> Shiny Lock
+                    {% else %}
+                        <i class="fas fa-unlock"></i> Shiny Disponible
+                    {% endif %}
+                </div>
+                
+                <!-- Jeux disponibles -->
+                <div class="info-section">
+                    <h3><i class="fas fa-gamepad"></i> Jeux Disponibles</h3>
+                    {% if pokemon.all_games %}
+                        <div class="games-list">
+                            {% for game in pokemon.all_games %}
+                                <span class="game-tag">{{ game.name }}</span>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="no-data">Aucun jeu spécifique trouvé</p>
+                    {% endif %}
+                </div>
+                
+                <!-- Méthodes générales -->
+                <div class="info-section">
+                    <h3><i class="fas fa-crosshairs"></i> Méthodes Générales</h3>
+                    {% if pokemon.general_methods %}
+                        <div class="methods-list">
+                            {% for method in pokemon.general_methods %}
+                                <div class="method-item">
+                                    <div class="method-name">{{ method.name }}</div>
+                                    <div class="method-description">{{ method.description }}</div>
+                                    {% if method.conditions %}
+                                        <div class="method-conditions">Conditions: {{ method.conditions }}</div>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="no-data">Aucune méthode générale trouvée</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tableaux par génération -->
+        <div class="generations-section">
+            <h2 class="generations-title">
+                <i class="fas fa-table"></i> Méthodes par Génération
+            </h2>
+            
+            {% if pokemon.games_by_generation %}
+                {% for generation in pokemon.games_by_generation.keys() | sort %}
+                    <div class="generation-block">
+                        <div class="generation-header">
+                            <i class="fas fa-star"></i> Génération {{ generation }}
+                        </div>
+                        
+                        <table class="methods-table">
+                            <thead>
+                                <tr>
+                                    <th><i class="fas fa-gamepad"></i> Jeu</th>
+                                    <th><i class="fas fa-crosshairs"></i> Méthode</th>
+                                    <th><i class="fas fa-map-marker-alt"></i> Lieu</th>
+                                    <th><i class="fas fa-percentage"></i> Probabilité</th>
+                                    <th><i class="fas fa-info-circle"></i> Conditions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for method in pokemon.games_by_generation[generation] %}
+                                    <tr>
+                                        <td><strong>{{ method.game }}</strong></td>
+                                        <td>{{ method.name }}</td>
+                                        <td>{{ method.location }}</td>
+                                        <td class="probability-cell">{{ method.probability }}</td>
+                                        <td>{{ method.conditions if method.conditions else '-' }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="no-data">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p>Aucune méthode spécifique trouvée pour ce Pokemon</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html> 
