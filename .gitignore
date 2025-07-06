@@ -1,0 +1,136 @@
+# ===================================================
+# POKEMON SHASSE WEB APP - PRODUCTION ONLY
+# ===================================================
+# 
+# Ce .gitignore ULTRA-STRICT ne garde que le minimum
+# nécessaire pour faire tourner le serveur web
+#
+
+# ===================================================
+# EXCLURE TOUT PAR DÉFAUT
+# ===================================================
+
+# Exclure TOUS les fichiers Python sauf les essentiels
+*.py
+
+# Exclure TOUS les fichiers de documentation  
+*.md
+
+# Exclure TOUS les fichiers HTML d'exemple
+*.html
+
+# Exclure TOUS les fichiers JSON de données
+*.json
+
+# Exclure TOUS les dossiers de cache et temporaires
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+.cache/
+.pytest_cache/
+.coverage
+.tox/
+.env
+.venv/
+venv/
+env/
+
+# Exclure les fichiers système
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+*.bak
+*~
+
+# Exclure les IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# ===================================================
+# FORCER L'INCLUSION DES FICHIERS ESSENTIELS
+# ===================================================
+
+# Serveur web et dépendances OBLIGATOIRES
+!web_server.py
+!database_v2.py
+!regional_forms_reference.py
+!requirements.txt
+
+# Base de données
+!pokemon_shasse.db
+
+# Templates HTML (pages web)
+!templates/
+!templates/**/*.html
+
+# Fichiers statiques (CSS, JS, SVG)
+!static/
+!static/**/*.css
+!static/**/*.js
+!static/**/*.svg
+
+# Assets Pokemon (sprites)
+!assets/
+!assets/**/*.png
+!assets/**/*.jpg
+!assets/**/*.gif
+
+# Déploiement GitHub Actions
+!.github/
+!.github/workflows/
+!.github/workflows/deploy.yml
+
+# Script de déploiement PythonAnywhere
+!deploy_pa.py
+
+# ===================================================
+# FORCER L'EXCLUSION DE FICHIERS SPÉCIFIQUES
+# ===================================================
+
+# Scripts de développement (même si correspondent aux patterns autorisés)
+check_deployment.py
+test_*.py
+*_test.py
+pokemon_scraper*.py
+scraper*.py
+analyze_*.py
+clean_*.py
+normalize_*.py
+migrate_*.py
+fix_*.py
+demo_*.py
+example_*.py
+quick_*.py
+
+# Documentation et guides
+README*.md
+GUIDE*.md
+CORRECTIONS*.md
+DEPLOY*.md
+*_REFERENCE.md
+
+# Fichiers HTML d'exemple
+bulbizarre.html
+1g.html
+*.debug.html
+
+# Données temporaires et de test
+pokemon_list.json
+test_*.json
+*_debug.json
+*_result.json
+
+# Anciens fichiers de base de données
+database.py
+pokemon_shasse_backup.db
+*.db.backup
+
+# Fichiers de configuration développement
+.cursorrules 
