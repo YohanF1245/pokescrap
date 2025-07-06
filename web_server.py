@@ -16,8 +16,22 @@ from regional_forms_reference import (
 
 app = Flask(__name__)
 
-# ✅ NOUVEAU : Utiliser DatabaseManagerV2
-db = DatabaseManagerV2("pokemon_shasse.db")
+# ✅ CORRECTION : Utiliser un chemin absolu pour la base de données
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pokemon_shasse.db")
+print(f"🔍 Chemin de la base de données : {DB_PATH}")
+print(f"📁 Fichier existe : {os.path.exists(DB_PATH)}")
+
+# ✅ CORRECTION : Vérifier que la base de données existe
+if not os.path.exists(DB_PATH):
+    print("❌ ERREUR : Base de données introuvable !")
+    print("💡 Vérifiez que pokemon_shasse.db est présent dans le répertoire")
+    print(f"📂 Répertoire actuel : {os.getcwd()}")
+    print(f"📂 Fichiers présents : {os.listdir('.')}")
+else:
+    print("✅ Base de données trouvée")
+
+# ✅ NOUVEAU : Utiliser DatabaseManagerV2 avec chemin absolu
+db = DatabaseManagerV2(DB_PATH)
 
 @app.route('/')
 def index():
@@ -468,49 +482,50 @@ def pokemon_detail_page(pokemon_name):
 def api_stats():
     """API pour les statistiques (appelée par le JavaScript)."""
     try:
+        print("🔍 Tentative de connexion à la base de données...")
         conn = db.create_connection()
         cursor = conn.cursor()
         
-        # Pokemon stats de base
+        # Vérifier que la base contient des données
         cursor.execute('SELECT COUNT(*) FROM pokemon')
         total_pokemon = cursor.fetchone()[0]
+        print(f"📊 Total Pokemon trouvés : {total_pokemon}")
         
-        cursor.execute('SELECT COUNT(*) FROM pokemon WHERE sprite_url IS NOT NULL')
+        if total_pokemon == 0:
+            print("⚠️ ATTENTION : Aucun Pokemon trouvé dans la base")
+            return jsonify({
+                'error': 'Base de données vide',
+                'message': 'Aucun Pokemon trouvé dans la base de données'
+            }), 200
+        
+        # Sprites téléchargés
+        cursor.execute('SELECT COUNT(*) FROM pokemon WHERE sprite_url IS NOT NULL AND sprite_url != ""')
         sprites_downloaded = cursor.fetchone()[0]
         
-        # Calcul du pourcentage de progression (sprites téléchargés)
         download_percentage = (sprites_downloaded / total_pokemon * 100) if total_pokemon > 0 else 0
         
-        # Total des formes (pour l'instant = total Pokemon)
-        cursor.execute('SELECT COUNT(DISTINCT name) FROM pokemon')
+        # Formes totales
+        cursor.execute('SELECT COUNT(*) FROM pokemon WHERE name LIKE "%Alola%" OR name LIKE "%Galar%" OR name LIKE "%Hisui%"')
         total_forms = cursor.fetchone()[0]
         
-        # Statistiques par génération pour les barres de progression
+        # Stats par génération
         cursor.execute('''
-            SELECT generation, 
-                   COUNT(*) as total,
-                   COUNT(CASE WHEN sprite_url IS NOT NULL THEN 1 END) as with_sprites
+            SELECT generation, COUNT(*) as count
             FROM pokemon 
             GROUP BY generation 
             ORDER BY generation
         ''')
-        generation_stats = []
-        for row in cursor.fetchall():
-            generation, total, with_sprites = row
-            generation_stats.append([generation, total, with_sprites])
+        generation_stats = cursor.fetchall()
         
-        # Top formes (ici on utilise les générations comme "formes")
+        # Top formes
         cursor.execute('''
-            SELECT 'Génération ' || generation as form_name, COUNT(*) as count
+            SELECT name, generation, sprite_url
             FROM pokemon 
-            GROUP BY generation 
-            ORDER BY count DESC
-            LIMIT 5
+            WHERE name LIKE "%Alola%" OR name LIKE "%Galar%" OR name LIKE "%Hisui%"
+            ORDER BY name
+            LIMIT 10
         ''')
-        top_forms = []
-        for row in cursor.fetchall():
-            form_name, count = row
-            top_forms.append([form_name, count])
+        top_forms = cursor.fetchall()
         
         # Pokemon récents (derniers ajoutés)
         cursor.execute('''
@@ -530,6 +545,8 @@ def api_stats():
         
         conn.close()
         
+        print("✅ Données récupérées avec succès")
+        
         # Retourner dans le format attendu par le JavaScript
         return jsonify({
             'total_pokemon': total_pokemon,
@@ -541,8 +558,24 @@ def api_stats():
             'recent_pokemon': recent_pokemon
         })
         
+    except sqlite3.Error as e:
+        print(f"❌ Erreur SQLite : {e}")
+        return jsonify({
+            'error': 'Erreur de base de données',
+            'message': str(e),
+            'db_path': DB_PATH,
+            'db_exists': os.path.exists(DB_PATH)
+        }), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"❌ Erreur générale : {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'error': 'Erreur serveur',
+            'message': str(e),
+            'db_path': DB_PATH,
+            'db_exists': os.path.exists(DB_PATH)
+        }), 500
 
 @app.route('/api/sprites')
 def api_sprites():
@@ -694,6 +727,56 @@ def api_missing_pokemon(generation):
             'missing_pokemon': missing_pokemon,
             'total_pokemon': len(pokemon_data),
             'missing_count': len(missing_pokemon)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/debug/database')
+def debug_database():
+    """Route de diagnostic pour vérifier l'état de la base de données."""
+    try:
+        # Informations sur le fichier
+        file_info = {
+            'db_path': DB_PATH,
+            'file_exists': os.path.exists(DB_PATH),
+            'file_size': os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0,
+            'working_directory': os.getcwd(),
+            'app_directory': os.path.dirname(os.path.abspath(__file__))
+        }
+        
+        # Tentative de connexion
+        connection_info = {'status': 'failed', 'error': None}
+        tables_info = []
+        
+        try:
+            conn = db.create_connection()
+            cursor = conn.cursor()
+            connection_info['status'] = 'success'
+            
+            # Lister les tables
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = cursor.fetchall()
+            
+            # Compter les enregistrements dans chaque table
+            for table in tables:
+                table_name = table[0]
+                cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                count = cursor.fetchone()[0]
+                tables_info.append({
+                    'table': table_name,
+                    'count': count
+                })
+            
+            conn.close()
+            
+        except Exception as e:
+            connection_info['error'] = str(e)
+        
+        return jsonify({
+            'file_info': file_info,
+            'connection_info': connection_info,
+            'tables_info': tables_info
         })
         
     except Exception as e:
