@@ -4,32 +4,144 @@ import json
 import os
 import re
 import time
+import logging
+import traceback
+from datetime import datetime
 from urllib.parse import urljoin, urlparse
 from database_v2 import DatabaseManagerV2
+
+# ✅ NOUVEAU : Configuration du logging
+def setup_logging():
+    """Configure le système de logging avec fichier et console."""
+    # Créer le dossier logs si nécessaire
+    os.makedirs("logs", exist_ok=True)
+    
+    # Configuration du logger principal
+    logger = logging.getLogger('pokemon_scraper')
+    logger.setLevel(logging.DEBUG)
+    
+    # Supprimer les handlers existants pour éviter les doublons
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # Handler pour fichier avec rotation par date
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    file_handler = logging.FileHandler(f'logs/scraping_{timestamp}.log', encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    
+    # Handler pour console (moins verbeux)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    
+    # Format détaillé pour fichier
+    file_formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)-8s | %(funcName)-20s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # Format simple pour console
+    console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    
+    file_handler.setFormatter(file_formatter)
+    console_handler.setFormatter(console_formatter)
+    
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
 
 class PokemonScraperV2:
     def __init__(self):
         self.base_url = "https://www.pokebip.com"
-        self.db = DatabaseManagerV2("pokemon_shasse.db")  # ✅ Utiliser V2 avec nom standard
+        self.db = DatabaseManagerV2("pokemon_shasse_v2.db")
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
         
+        # ✅ NOUVEAU : Initialiser le logging
+        self.logger = setup_logging()
+        self.stats = {
+            'total_processed': 0,
+            'success_count': 0,
+            'error_count': 0,
+            'error_types': {},
+            'start_time': datetime.now()
+        }
+        
         # Créer le dossier assets si il n'existe pas
         os.makedirs("assets", exist_ok=True)
         for gen in range(1, 10):
             os.makedirs(f"assets/gen_{gen}", exist_ok=True)
+        
+        self.logger.info("=== NOUVEAU SCRAPING SESSION DÉMARRÉ ===")
+        self.logger.info(f"Base URL: {self.base_url}")
+        self.logger.info(f"Base de données: pokemon_shasse_v2.db")
+    
+    def log_error(self, error_type: str, pokemon_name: str, generation: int, url: str, exception: Exception, context: str = ""):
+        """Log une erreur de manière détaillée."""
+        self.stats['error_count'] += 1
+        self.stats['error_types'][error_type] = self.stats['error_types'].get(error_type, 0) + 1
+        
+        error_msg = f"ERREUR {error_type.upper()}"
+        error_msg += f" | Pokemon: {pokemon_name} (Gen {generation})"
+        error_msg += f" | URL: {url}"
+        if context:
+            error_msg += f" | Contexte: {context}"
+        error_msg += f" | Exception: {str(exception)}"
+        
+        self.logger.error(error_msg)
+        self.logger.debug(f"Stack trace pour {pokemon_name}:\n{traceback.format_exc()}")
+    
+    def log_success(self, pokemon_name: str, generation: int, details: dict):
+        """Log un succès avec détails."""
+        self.stats['success_count'] += 1
+        
+        success_msg = f"SUCCÈS | Pokemon: {pokemon_name} (Gen {generation})"
+        success_msg += f" | Sprite: {'✅' if details.get('sprite_downloaded') else '❌'}"
+        success_msg += f" | Image HQ: {'✅' if details.get('hq_image_downloaded') else '❌'}"
+        success_msg += f" | Méthodes: {details.get('methods_count', 0)}"
+        success_msg += f" | Jeux: {details.get('games_count', 0)}"
+        
+        self.logger.info(success_msg)
+    
+    def log_stats(self):
+        """Log les statistiques finales."""
+        duration = datetime.now() - self.stats['start_time']
+        total = self.stats['total_processed']
+        success = self.stats['success_count']
+        errors = self.stats['error_count']
+        success_rate = (success / total * 100) if total > 0 else 0
+        
+        self.logger.info("=== STATISTIQUES FINALES ===")
+        self.logger.info(f"Durée totale: {duration}")
+        self.logger.info(f"Pokemon traités: {total}")
+        self.logger.info(f"Succès: {success} ({success_rate:.1f}%)")
+        self.logger.info(f"Erreurs: {errors} ({100-success_rate:.1f}%)")
+        
+        if self.stats['error_types']:
+            self.logger.info("=== RÉPARTITION DES ERREURS ===")
+            for error_type, count in sorted(self.stats['error_types'].items(), key=lambda x: x[1], reverse=True):
+                percentage = (count / errors * 100) if errors > 0 else 0
+                self.logger.info(f"{error_type}: {count} ({percentage:.1f}%)")
     
     def get_page(self, url):
-        """Récupère le contenu d'une page web avec gestion des erreurs."""
+        """Récupère le contenu d'une page web avec gestion des erreurs et logging."""
         try:
+            self.logger.debug(f"Récupération de l'URL: {url}")
             response = self.session.get(url, timeout=10)
             response.raise_for_status()
+            self.logger.debug(f"Page récupérée avec succès: {len(response.text)} caractères")
             return response.text
+        except requests.exceptions.Timeout as e:
+            self.logger.warning(f"Timeout pour {url}: {e}")
+            raise
+        except requests.exceptions.HTTPError as e:
+            self.logger.warning(f"Erreur HTTP {response.status_code} pour {url}: {e}")
+            raise
         except requests.exceptions.RequestException as e:
-            print(f"❌ Erreur lors de la récupération de {url}: {e}")
-            return None
+            self.logger.warning(f"Erreur réseau pour {url}: {e}")
+            raise
     
     def sanitize_filename(self, filename):
         """Nettoie un nom de fichier pour qu'il soit compatible avec le système de fichiers."""
@@ -74,12 +186,15 @@ class PokemonScraperV2:
         return None
 
     def download_sprite(self, pokemon_name, generation, pokemon_number):
-        """Télécharge le sprite d'un Pokemon."""
+        """Télécharge le sprite d'un Pokemon avec logging détaillé."""
+        sprite_url = None
         try:
+            self.logger.debug(f"Début téléchargement sprite pour {pokemon_name}")
+            
             # Construire l'URL du sprite
             sprite_url = self.build_sprite_url(pokemon_name, generation, pokemon_number)
             if not sprite_url:
-                print(f"    ❌ Impossible de construire l'URL du sprite pour {pokemon_name}")
+                self.logger.warning(f"Impossible de construire l'URL du sprite pour {pokemon_name}")
                 return None
             
             # Créer le nom du fichier
@@ -95,20 +210,30 @@ class PokemonScraperV2:
             # Chemin complet du fichier
             sprite_path = os.path.join(gen_dir, filename)
             
+            # Vérifier si le fichier existe déjà
+            if os.path.exists(sprite_path):
+                self.logger.debug(f"Sprite existe déjà: {sprite_path}")
+                return sprite_path
+            
             # Télécharger le sprite
-            print(f"    🖼️ Téléchargement sprite: {sprite_url}")
-            response = self.session.get(sprite_url)
+            self.logger.debug(f"Téléchargement depuis: {sprite_url}")
+            response = self.session.get(sprite_url, timeout=10)
+            
             if response.status_code == 200:
                 with open(sprite_path, 'wb') as f:
                     f.write(response.content)
-                print(f"    ✅ Sprite sauvegardé: {sprite_path}")
+                self.logger.debug(f"Sprite sauvegardé: {sprite_path} ({len(response.content)} bytes)")
                 return sprite_path
             else:
-                print(f"    ❌ Erreur téléchargement sprite: {response.status_code}")
+                self.logger.warning(f"Erreur HTTP {response.status_code} pour sprite {sprite_url}")
                 return None
                 
         except Exception as e:
-            print(f"    ❌ Erreur téléchargement sprite: {e}")
+            if sprite_url:
+                self.log_error("SPRITE_DOWNLOAD", pokemon_name, generation, sprite_url, e, 
+                             f"Tentative téléchargement sprite")
+            else:
+                self.logger.error(f"Erreur construction URL sprite pour {pokemon_name}: {e}")
             return None
     
     def build_sprite_url(self, pokemon_name, generation, pokemon_number):
@@ -387,27 +512,84 @@ class PokemonScraperV2:
 
     def is_methods_table(self, table) -> bool:
         """Vérifie si un tableau contient des méthodes de chasse."""
-        header_row = table.find('tr')
+                        header_row = table.find('tr')
         if not header_row:
             return False
         
-        headers = [th.get_text(strip=True) for th in header_row.find_all(['th', 'td'])]
+                            headers = [th.get_text(strip=True) for th in header_row.find_all(['th', 'td'])]
         return (len(headers) >= 3 and 
                 'Jeu' in headers and 
                 'Méthode' in headers)
     
     def parse_methods_table_improved(self, table, details):
-        """Parse un tableau de méthodes avec gestion des cellules complexes - VERSION AMÉLIORÉE."""
+        """Parse un tableau de méthodes - VERSION CORRIGÉE POUR ÉVITER LES MÉTHODES ARTIFICIELLES."""
         methods = []
-        rows = table.find_all('tr')[1:]  # Skip header
-        
+                                rows = table.find_all('tr')[1:]  # Skip header
+                                
         current_game = None
+        current_method = None
         
-        for row in rows:
-            cols = row.find_all(['th', 'td'])
+        for row_idx, row in enumerate(rows):
+                                    cols = row.find_all(['th', 'td'])
+                                    
+            # ✅ CORRECTION : Gestion améliorée des rowspan/colspan
+            if len(cols) == 1:
+                # Une seule colonne = probablement une continuation (sprites/info supplémentaire)
+                # ❌ ANCIEN PROBLÈME: Il créait des méthodes pour TOUS les sprites
+                # ✅ NOUVELLE RÈGLE: Ignorer les cellules qui sont juste des sprites d'autres Pokemon
+                
+                cell_text = cols[0].get_text(strip=True)
+                cell_html = str(cols[0])
+                
+                # ✅ FILTRE STRICT: Ne créer une méthode QUE si il y a un lieu réel
+                if current_game and current_method:
+                    # Chercher les sprites dans cette cellule
+                    sprites = self.extract_pokemon_sprites_from_html(cell_html)
+                    location = self.extract_location_from_context(cell_text, cell_html)
+                    
+                    # ✅ NOUVELLE VALIDATION: Ne créer une méthode que si on a un VRAI lieu
+                    # Pas juste un pourcentage ou des sprites vides
+                    has_real_location = (location and 
+                                       len(location.strip()) > 0 and 
+                                       not location.startswith('%') and
+                                       location.lower() not in ['', 'non spécifié', 'autre'])
+                    
+                    # ✅ RÈGLE: Ne créer une méthode QUE si il y a un lieu spécifique ET valide
+                    if has_real_location and '%' in cell_text:
+                        method_data = {
+                            'game': current_game,
+                            'method': current_method,
+                            'location': location,
+                            'probability': cell_text,
+                            'pokemon_sprites': sprites
+                        }
+                        
+                        if self.is_valid_method_entry(method_data):
+                            method_category = self.classify_specific_method(current_method)
+                            
+                            # Ajouter le jeu si nécessaire
+                                            if current_game not in [g['name'] for g in details['games']]:
+                                                generation = self.detect_generation_from_game(current_game)
+                                                details['games'].append({
+                                                    'name': current_game,
+                                                    'generation': generation
+                                                })
+                            
+                            details['specific_methods'].append({
+                                'method': current_method,
+                                'game': current_game,
+                                'location': location,
+                                'probability': cell_text,
+                                'category': method_category['category']
+                            })
+                            
+                            methods.append(method_data)
+                    # ✅ SINON: Ignorer complètement cette cellule (c'est juste des sprites d'autres Pokemon)
+                
+                continue
             
-            # ✅ NOUVEAU : Reconstruction intelligente des colonnes
-            normalized_data = self.normalize_row_data(cols)
+            # ✅ CORRECTION : Gestion des lignes normales avec meilleure détection
+            normalized_data = self.normalize_row_data_improved(cols)
             
             if normalized_data:
                 method_data = self.parse_single_method_improved(normalized_data, current_game)
@@ -420,281 +602,487 @@ class PokemonScraperV2:
                             'generation': generation
                         })
                         print(f"              🆕 Jeu ajouté: {method_data['game']} (Gen {generation})")
-                    
-                    # Ajouter la méthode spécifique
+                                            
+                                            # Ajouter la méthode spécifique
                     method_category = self.classify_specific_method(method_data['method'])
                     
-                    # Construire les conditions complètes
-                    conditions_parts = []
-                    if method_data.get('level'):
-                        conditions_parts.append(f"Niveau {method_data['level']}")
-                    if method_data.get('conditions'):
-                        conditions_parts.append(method_data['conditions'])
-                    
-                    full_conditions = " | ".join(conditions_parts) if conditions_parts else None
-                    
-                    details['specific_methods'].append({
-                        'name': method_data['method'],
+                                            details['specific_methods'].append({
+                        'method': method_data['method'],
                         'game': method_data['game'],
                         'location': method_data['location'],
                         'probability': method_data['probability'],
-                        'category': method_category['category'],
-                        'description': method_category['description'],
-                        'conditions': full_conditions
+                        'category': method_category['category']
                     })
                     
                     methods.append(method_data)
                     
-                    # Update current game only if we found a valid one
+                    # Update current context
                     if method_data['game']:
                         current_game = method_data['game']
+                    if method_data['method']:
+                        current_method = method_data['method']
         
         return methods
-    
-    def normalize_row_data(self, cols):
-        """Normalise les données d'une ligne en détectant le contenu réel."""
+
+    def extract_probability_from_span(self, cell) -> str:
+        """Extrait SEULEMENT le pourcentage visible du span, ignore les tooltips TC."""
+        # Juste récupérer le texte visible, ignorer les tooltips
+        text = cell.get_text(strip=True)
+        
+        # Extraire seulement le pourcentage principal visible
+        if text and '%' in text:
+            main_prob = re.search(r'\d+(?:\.\d+)?%', text)
+            if main_prob:
+                return main_prob.group(0)
+        
+        return text if text else ''
+
+    def clean_cell_text_smart(self, cell) -> str:
+        """Nettoie le texte d'une cellule en préservant les séparations importantes."""
+        # ✅ NOUVEAU : Vérifier d'abord s'il y a des spans avec TC tooltips
+        spans_with_tc = cell.find_all('span', attrs={'data-original-title': True})
+        has_tc_tooltips = any('tc =' in span.get('data-original-title', '').lower() or 'tc=' in span.get('data-original-title', '').lower() 
+                             for span in spans_with_tc)
+        
+        if has_tc_tooltips:
+            # Si on a des tooltips TC, extraire seulement le texte visible (sans les tooltips)
+            # Pour éviter la duplication TC dans le texte
+            text = ''
+            for content in cell.contents:
+                if hasattr(content, 'name'):
+                    if content.name == 'span' and content.get('data-original-title'):
+                        # Prendre seulement le texte visible du span, pas le tooltip
+                        text += content.get_text(strip=True) + ' '
+                                        else:
+                        text += content.get_text(strip=True) + ' '
+                else:
+                    text += str(content).strip() + ' '
+            text = text.strip()
+        else:
+            # Obtenir le texte avec séparateurs (méthode originale)
+            text = cell.get_text(separator=' | ', strip=True)
+        
+        # Nettoyer les séparations multiples
+        text = re.sub(r'\s*\|\s*', ' | ', text)  # Normaliser les séparateurs
+        text = re.sub(r'\s+', ' ', text)  # Normaliser les espaces multiples
+        
+        # ✅ AMÉLIORATION: Séparer les données collées courantes (si pas de tooltips)
+        if not has_tc_tooltips:
+            # "RencontreRepousse niv. 51 - Troupeau" -> "Rencontre | Repousse niv. 51 - Troupeau"
+            text = re.sub(r'(Rencontre)(Repousse)', r'\1 | \2', text)
+            text = re.sub(r'(Reset)(Sandwich)', r'\1 | \2', text)
+        
+        # Nettoyer les espaces en trop
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text
+
+    def normalize_row_data_improved(self, cols):
+        """Normalise les données d'une ligne - VERSION AMÉLIORÉE POUR ROWSPAN/COLSPAN."""
         if len(cols) < 2:
             return None
         
-        # Extraire tout le texte disponible
-        all_texts = [col.get_text(strip=True) for col in cols]
+        # ✅ CORRECTION : Utiliser le nettoyage intelligent au lieu de strip brutal
+        all_texts = [self.clean_cell_text_smart(col) for col in cols]
         all_html = [str(col) for col in cols]
         
-        # ✅ NOUVEAU : Détecter les patterns pour réorganiser les données
         result = {'game': '', 'method': '', 'location': '', 'probability': '', 'sprites': []}
         
-        # Analyser chaque cellule pour détecter son type de contenu
-        for i, (text, html) in enumerate(zip(all_texts, all_html)):
-            content_type = self.detect_content_type(text, html)
+        # ✅ AMÉLIORATION : Détection plus intelligente selon le nombre de colonnes
+        if len(cols) == 4:
+            # Cas standard : Jeu | Méthode | Localisation | Pourcentage
+            result['game'] = all_texts[0]
+            result['method'] = all_texts[1]
+            result['location'] = all_texts[2]
+            result['probability'] = self.extract_probability_from_span(cols[3])  # ✅ Utiliser la nouvelle fonction
+            result['sprites'] = self.extract_pokemon_sprites_from_html(all_html[2])  # Sprites dans localisation
             
-            if content_type == 'game' and not result['game']:
-                result['game'] = text
-            elif content_type == 'method' and not result['method']:
-                result['method'] = text
-            elif content_type == 'location' and not result['location']:
-                result['location'] = text
-                # Extraire les sprites Pokemon de cette cellule
-                result['sprites'] = self.extract_pokemon_sprites_from_html(html)
-            elif content_type == 'probability' and not result['probability']:
-                result['probability'] = text
+        elif len(cols) == 3:
+            # Cas typique : continuation d'un jeu avec Méthode | Localisation | Pourcentage
+            # OU Jeu | Méthode | Localisation (sans pourcentage séparé)
+            
+            # Détecter si le premier élément est un jeu ou une méthode
+            first_text = all_texts[0]
+            first_content_type = self.detect_content_type_simple(first_text, all_html[0])
+            
+            if first_content_type == 'game':
+                # Jeu | Méthode | Localisation
+                result['game'] = all_texts[0]
+                result['method'] = all_texts[1]
+                result['location'] = all_texts[2]
+                result['sprites'] = self.extract_pokemon_sprites_from_html(all_html[2])
+            else:
+                # Méthode | Localisation | Pourcentage (continuation)
+                result['method'] = all_texts[0]
+                result['location'] = all_texts[1]
+                result['probability'] = self.extract_probability_from_span(cols[2])  # ✅ Utiliser la nouvelle fonction
+                result['sprites'] = self.extract_pokemon_sprites_from_html(all_html[1])
         
-        # ✅ NOUVEAU : Si pas de répartition claire, utiliser l'ordre par défaut
-        if not any([result['game'], result['method'], result['location']]):
-            if len(all_texts) >= 3:
-                # Essayer de détecter si le premier élément est composite
-                first_text = all_texts[0]
-                if self.is_composite_method_game(first_text):
-                    # C'est probablement "JeuMéthode" collés
-                    game, method = self.split_composite_method_game(first_text)
-                    result['game'] = game
-                    result['method'] = method
-                    result['location'] = all_texts[1] if len(all_texts) > 1 else ''
-                    result['probability'] = all_texts[2] if len(all_texts) > 2 else ''
-                else:
-                    result['game'] = all_texts[0]
-                    result['method'] = all_texts[1]
-                    result['location'] = all_texts[2]
-                    result['probability'] = all_texts[3] if len(all_texts) > 3 else ''
+        elif len(cols) == 2:
+            # Cas : Méthode | Localisation OU Localisation | Pourcentage
+            if '%' in all_texts[1] or 'TC =' in all_texts[1]:
+                # Localisation | Pourcentage
+                result['location'] = all_texts[0]
+                result['probability'] = self.extract_probability_from_span(cols[1])  # ✅ Utiliser la nouvelle fonction
+            else:
+                # Méthode | Localisation
+                result['method'] = all_texts[0]
+                result['location'] = all_texts[1]
+            result['sprites'] = self.extract_pokemon_sprites_from_html(all_html[0] + all_html[1])
+        
+        # ✅ NETTOYAGE FINAL : Vérifier que les éléments ne sont pas vides
+        for key in ['game', 'method', 'location', 'probability']:
+            if result[key] and len(result[key].strip()) == 0:
+                result[key] = ''
         
         return result if any([result['game'], result['method'], result['location']]) else None
-    
-    def detect_content_type(self, text: str, html: str) -> str:
-        """Détecte le type de contenu d'une cellule."""
-        text_lower = text.lower()
+
+    def clean_probability_smart(self, probability_text: str) -> str:
+        """Nettoie intelligemment les données de probabilité (gère TC =, etc.) - VERSION COMPLÈTE."""
+        if not probability_text:
+            return ''
         
-        # Probabilité (contient % ou des ratios)
-        if re.search(r'\d+%|tc\s*=|\d+/\d+', text_lower):
-            return 'probability'
+        # ✅ CORRECTION PRINCIPALE : Séparer toutes les données TC = avant traitement
+        if 'TC =' in probability_text or 'TC=' in probability_text:
+            # Patterns multiples pour tous les cas de TC
+            # "100%TC = 10%Capture : 50.28% / tour" -> "100% | TC = 10% | Capture : 50.28% / tour"
+            probability_text = re.sub(r'(\d+(?:\.\d+)?%)TC\s*=\s*(\d+(?:\.\d+)?%)([A-Za-z])', r'\1 | TC = \2 | \3', probability_text)
+            probability_text = re.sub(r'(\d+(?:\.\d+)?%)TC=(\d+(?:\.\d+)?%)([A-Za-z])', r'\1 | TC = \2 | \3', probability_text)
+            
+            # ✅ NOUVEAU : Cas avec espace "100% TC = 10%" 
+            probability_text = re.sub(r'(\d+(?:\.\d+)?%)\s+TC\s*=\s*(\d+(?:\.\d+)?%)([A-Za-z])', r'\1 | TC = \2 | \3', probability_text)
+            probability_text = re.sub(r'(\d+(?:\.\d+)?%)\s+TC\s*=\s*(\d+(?:\.\d+)?%)\s*([A-Za-z])', r'\1 | TC = \2 | \3', probability_text)
+            
+            # Cas simples sans texte après
+            probability_text = re.sub(r'(\d+(?:\.\d+)?%)TC\s*=\s*(\d+(?:\.\d+)?%)(?!\w)', r'\1 | TC = \2', probability_text)
+            probability_text = re.sub(r'(\d+(?:\.\d+)?%)TC=(\d+(?:\.\d+)?%)(?!\w)', r'\1 | TC = \2', probability_text)
+            # ✅ NOUVEAU : Cas avec espace simple
+            probability_text = re.sub(r'(\d+(?:\.\d+)?%)\s+TC\s*=\s*(\d+(?:\.\d+)?%)(?!\w)', r'\1 | TC = \2', probability_text)
+            
+            # ✅ NOUVEAU : Cas "% TC =" au milieu du texte
+            probability_text = re.sub(r'(\d+(?:\.\d+)?%)\s+TC\s*=\s*(\d+(?:\.\d+)?%)\s+([A-Za-z])', r'\1 | TC = \2 | \3', probability_text)
         
-        # Jeu (noms connus)
-        known_games = ['rouge', 'bleu', 'jaune', 'or', 'argent', 'cristal', 'rubis', 'saphir', 'émeraude',
-                      'diamant', 'perle', 'platine', 'heartgold', 'soulsilver', 'noir', 'blanc',
-                      'écarlate', 'violet', 'épée', 'bouclier']
-        if any(game in text_lower for game in known_games):
-            return 'game'
+        # ✅ NOUVEAU : Séparer les données de capture et fuite
+        if 'Capture :' in probability_text or 'Fuite :' in probability_text:
+            # "Capture : 50.28% / tourFuite : 47.27% / tour" -> "Capture : 50.28% / tour | Fuite : 47.27% / tour"
+            probability_text = re.sub(r'(\d+(?:\.\d+)?%\s*/\s*tour)([A-Z])', r'\1 | \2', probability_text)
+            probability_text = re.sub(r'(Capture\s*:\s*[^|]+)([A-Z])', r'\1 | \2', probability_text)
+            probability_text = re.sub(r'(Fuite\s*:\s*[^|]+)([A-Z])', r'\1 | \2', probability_text)
         
-        # Méthode (contient des mots-clés de méthodes)
-        method_keywords = ['rencontre', 'reset', 'surf', 'pêche', 'sandwich', 'repousse', 'scanner']
-        if any(keyword in text_lower for keyword in method_keywords):
-            return 'method'
+        # ✅ GESTION des pipes existants et nettoyage
+        if '|' in probability_text:
+            parts = probability_text.split('|')
+            cleaned_parts = []
+            
+            for part in parts:
+                part = part.strip()
+                if part:
+                    # Nettoyer chaque partie individuellement
+                    if 'TC =' in part or 'TC=' in part:
+                        part = re.sub(r'TC\s*=\s*', 'TC = ', part)  # Normaliser les espaces
+                    
+                    # Nettoyer les données de capture/fuite
+                    if 'Capture :' in part:
+                        part = re.sub(r'Capture\s*:\s*', 'Capture : ', part)
+                    if 'Fuite :' in part:
+                        part = re.sub(r'Fuite\s*:\s*', 'Fuite : ', part)
+                    
+                    cleaned_parts.append(part)
+            
+            return ' | '.join(cleaned_parts)
         
-        # Localisation (contient des images Pokemon ou des noms de lieux)
-        if '<img' in html or any(loc in text_lower for loc in ['route', 'chemin', 'mont', 'tour', 'manoir', 'val']):
-            return 'location'
+        # ✅ NETTOYAGE STANDARD pour les probabilités simples
+        probability_text = probability_text.strip()
         
-        return 'unknown'
-    
-    def is_composite_method_game(self, text: str) -> bool:
-        """Détecte si le texte contient jeu+méthode collés."""
-        # Patterns typiques : "RougeRencontre", "RencontreRepousse niv. 28"
-        method_patterns = [
-            r'[A-Za-z]+(?:Rencontre|Reset|Surf|Pêche|Sandwich)',
-            r'(?:Rencontre|Reset|Surf|Pêche|Sandwich)[A-Za-z\s]+niv\.\s*\d+',
-            r'[A-Za-z]+(?:Repousse|Scanner)',
-        ]
+        # Normaliser les pourcentages
+        probability_text = re.sub(r'(\d+(?:\.\d+)?)\s*%', r'\1%', probability_text)
         
-        return any(re.search(pattern, text) for pattern in method_patterns)
-    
-    def split_composite_method_game(self, text: str) -> tuple:
-        """Sépare un texte composite jeu+méthode."""
-        # Essayer différents patterns de séparation
+        # ✅ NOUVEAU : Tronquer les probabilités très longues (probablement mal parsées)
+        if len(probability_text) > 100:
+            # Prendre seulement la première partie logique
+            main_prob = re.search(r'^\d+(?:\.\d+)?%', probability_text)
+            if main_prob:
+                return main_prob.group(0)
+            else:
+                return probability_text[:50] + '...'  # Tronquer si trop long
         
-        # Pattern 1: "GameMethod" -> chercher où commence la méthode
-        method_starts = ['Rencontre', 'Reset', 'Surf', 'Pêche', 'Sandwich', 'Scanner']
-        for method_start in method_starts:
-            if method_start in text:
-                parts = text.split(method_start, 1)
-                if len(parts) == 2:
-                    return parts[0].strip(), (method_start + parts[1]).strip()
+        return probability_text
+
+    def extract_location_from_context(self, text: str, html: str) -> str:
+        """Extrait le lieu depuis le contexte (sprites, texte, etc.) - VERSION AMÉLIORÉE."""
+        # Si il y a des sprites, essayer d'extraire le lieu depuis le contexte
+        if '<img' in html:
+            # Il peut y avoir des infos de lieu dans le text ou les attributs
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # ✅ AMÉLIORATION : Utiliser le nettoyage intelligent
+            text_content = soup.get_text(separator=' | ', strip=True)
+            
+            # Chercher des éléments de texte autour des images
+            for element in soup.find_all(text=True):
+                element_text = element.strip()
+                if element_text and not element_text.startswith('Pokémon #'):
+                    # Patterns typiques de lieux
+                    location_patterns = [
+                        r'(Cave|Grotte|Route|Chemin|Parc|Zone|Caverne)\s+[^%\d]+',
+                        r'[A-ZÀ-Ÿ][a-zà-ÿ]+\s+[A-ZÀ-Ÿ][a-zà-ÿ]+'
+                    ]
+                    
+                    for pattern in location_patterns:
+                        match = re.search(pattern, element_text)
+                        if match:
+                            return self.clean_location_smart(match.group(0).strip())
         
-        # Pattern 2: "MethodGame" avec niveau -> "RencontreRepousse niv. X"
-        if 'niv.' in text:
-            # Prendre tout comme méthode, pas de jeu
-            return '', text.strip()
+        # Fallback : chercher dans le texte
+        if text and not text.startswith('%') and not text.startswith('TC ='):
+            # Nettoyer le texte des pourcentages pour garder le lieu
+            clean_text = re.sub(r'\d+%.*', '', text).strip()
+            if clean_text:
+                return self.clean_location_smart(clean_text)
         
-        # Fallback: tout dans méthode
-        return '', text.strip()
-    
-    def extract_pokemon_sprites_from_html(self, html: str) -> list:
-        """Extrait les noms des Pokemon depuis les sprites dans le HTML."""
-        soup = BeautifulSoup(html, 'html.parser')
-        sprites = soup.find_all('img')
+        return ''
+
+    def clean_location_smart(self, location_text: str) -> str:
+        """Nettoie intelligemment les noms de lieux."""
+        if not location_text:
+            return ''
         
-        pokemon_names = []
-        for sprite in sprites:
-            alt_text = sprite.get('alt', '')
-            if alt_text and alt_text not in pokemon_names:
-                pokemon_names.append(alt_text)
+        # ✅ AMÉLIORATION : Séparer les lieux complexes avec des pipes
+        # "Plaine VerdoyanteSauf par temps Nuageux" -> "Plaine Verdoyante | Sauf par temps Nuageux"
         
-        return pokemon_names
-    
+        # Détecter les mots collés et les séparer
+        location_text = re.sub(r'([a-z])([A-Z])', r'\1 | \2', location_text)  # mots collés
+        location_text = re.sub(r'(Zone|Route|Cave|Grotte|Parc)\s*([A-Z])', r'\1 \2', location_text)  # mots après zone/route
+        
+        # Séparer les conditions météo
+        location_text = re.sub(r'(Sauf|Except|Par temps)', r'| \1', location_text)
+        
+        # Nettoyer les espaces multiples et pipes multiples
+        location_text = re.sub(r'\s+', ' ', location_text)
+        location_text = re.sub(r'\s*\|\s*', ' | ', location_text)
+        location_text = re.sub(r'\|\s*\|', '|', location_text)  # pipes doubles
+        
+        return location_text.strip()
+
+    def clean_method_smart(self, method_text: str) -> str:
+        """Nettoie intelligemment les noms de méthodes."""
+        if not method_text:
+            return ''
+        
+        # ✅ AMÉLIORATION : Séparer les méthodes composées
+        # "RencontreRepousse niv. 51 - Troupeau" -> "Rencontre | Repousse niv. 51 - Troupeau"
+        
+        # Séparer les méthodes collées courantes
+        method_text = re.sub(r'(Rencontre)(Repousse)', r'\1 | \2', method_text)
+        method_text = re.sub(r'(Reset)(Sandwich)', r'\1 | \2', method_text)
+        method_text = re.sub(r'(Surf)(Repousse)', r'\1 | \2', method_text)
+        method_text = re.sub(r'(Pêche)(Repousse)', r'\1 | \2', method_text)
+        
+        # Séparer les niveaux et conditions
+        method_text = re.sub(r'(niv\.\s*\d+)', r'| \1', method_text)
+        method_text = re.sub(r'(\d+\s*blocs)', r'| \1', method_text)
+        
+        # Nettoyer les espaces et pipes
+        method_text = re.sub(r'\s+', ' ', method_text)
+        method_text = re.sub(r'\s*\|\s*', ' | ', method_text)
+        method_text = re.sub(r'^\|\s*', '', method_text)  # pipe au début
+        method_text = re.sub(r'\|\s*\|', '|', method_text)  # pipes doubles
+        
+        return method_text.strip()
+
     def parse_single_method_improved(self, data: dict, current_game: str):
-        """Parse une méthode depuis les données normalisées - VERSION AMÉLIORÉE."""
+        """Parse une méthode depuis les données normalisées - VERSION SIMPLIFIÉE."""
         game = data['game'] or current_game
         method = data['method']
         location = data['location']
         probability = data['probability']
         sprites = data.get('sprites', [])
         
-        if not game and not method:
+        # ✅ VALIDATION SIMPLE : Au moins un jeu ET une méthode non vide
+        if not game or not method or len(method.strip()) == 0:
             return None
         
-        # ✅ NOUVEAU : Parser la méthode pour extraire niveau et conditions
-        level, conditions = self.parse_method_details_improved(method)
-        
-        # Nettoyer les noms
+        # ✅ AMÉLIORATION : Utiliser le nettoyage intelligent pour tous les champs
         game = self.clean_game_name(game)
-        method = self.clean_method_name_improved(method)
-        location = self.clean_location_name_improved(location)
-        probability = self.clean_probability_improved(probability)
+        method = self.clean_method_smart(method) if method else ''
+        location = self.clean_location_smart(location) if location else ''
+        probability = probability.strip() if probability else ''  # Déjà nettoyé par clean_probability_smart
+        
+        # ✅ VALIDATION FINALE : S'assurer que la méthode n'est pas vide après nettoyage
+        if not method:
+            return None
         
         return {
             'game': game,
             'method': method,
             'location': location,
             'probability': probability,
-            'level': level,
-            'conditions': conditions,
             'pokemon_sprites': sprites
         }
+
+    def is_valid_method_entry(self, method_data: dict) -> bool:
+        """Valide qu'une entrée de méthode est correcte - VERSION STRICTE."""
+        if not method_data.get('game') or not method_data.get('method'):
+            return False
+        
+        # Vérifier que la méthode n'est pas vide
+        method = method_data.get('method', '').strip()
+        if not method or len(method) < 2:
+            return False
+        
+        # Vérifier que ce n'est pas juste un pourcentage ou des données invalides
+        if method.startswith('%') or method.startswith('TC ='):
+            return False
+        
+        # ✅ NOUVELLE VALIDATION STRICTE: Rejeter les méthodes sans lieu valide
+        location = method_data.get('location', '').strip()
+        
+        # ❌ Rejeter si pas de lieu du tout
+        if not location or len(location) == 0:
+            return False
+        
+        # ❌ Rejeter les lieux invalides
+        invalid_locations = ['non spécifié', 'autre', '', '???', 'inconnu', 'n/a']
+        if location.lower() in invalid_locations:
+            return False
+        
+        # ❌ Rejeter si le lieu est juste un pourcentage
+        if location.startswith('%') or location.startswith('TC ='):
+            return False
+        
+        # ✅ VALIDATION POSITIVE: Le lieu doit contenir des mots-clés de lieux réels
+        location_keywords = [
+            'cave', 'grotte', 'route', 'chemin', 'parc', 'zone', 'caverne',
+            'lac', 'mont', 'forêt', 'prairie', 'désert', 'ville', 'îl',
+            'tour', 'temple', 'château', 'manoir', 'safari', 'plaine',
+            'côte', 'baie', 'pont', 'tunnel', 'piste', 'sentier', 'jardin'
+        ]
+        
+        has_valid_location = any(keyword in location.lower() for keyword in location_keywords)
+        if not has_valid_location:
+            # Si aucun mot-clé de lieu, c'est probablement une méthode artificielle
+            return False
+        
+        return True
+    
+    def detect_content_type_simple(self, text: str, html: str) -> str:
+        """Détecte le type de contenu d'une cellule - VERSION SIMPLIFIÉE."""
+        text_lower = text.lower()
+        
+        # Probabilité (contient % ou des ratios)
+        if re.search(r'\d+%|tc\s*=|\d+/\d+', text_lower):
+            return 'probability'
+        
+        # Rejeter les textes très longs pour les jeux (probablement des localisations)
+        if len(text) > 25:
+            return 'location'
+        
+        # Jeux connus (liste simplifiée)
+        known_games = [
+            'rouge', 'bleu', 'jaune', 'or', 'argent', 'cristal',
+            'rubis', 'saphir', 'émeraude', 'rouge feu', 'vert feuille',
+            'diamant', 'perle', 'platine', 'heartgold', 'soulsilver',
+            'noir', 'blanc', 'rubis oméga', 'saphir alpha',
+            'soleil', 'lune', 'ultra-soleil', 'ultra-lune', 'lg: pikachu', 'lg: évoli',
+            'épée', 'bouclier', 'diamant étincelant', 'perle scintillante',
+            'écarlate', 'violet'
+        ]
+        
+        for game in known_games:
+            if game == text_lower or (len(game) > 3 and game in text_lower and len(text) < 20):
+                return 'game'
+        
+        # Méthodes basiques
+        method_keywords = ['rencontre', 'reset', 'surf', 'pêche', 'sandwich', 'repousse', 'scanner']
+        if any(keyword in text_lower for keyword in method_keywords):
+            return 'method'
+        
+        # Localisation (par défaut pour tout le reste ou si contient des images)
+        if '<img' in html or any(loc in text_lower for loc in ['route', 'zone', 'caverne', 'parc']):
+            return 'location'
+        
+        return 'unknown'
+    
+    def extract_pokemon_sprites_from_html(self, html: str) -> list:
+        """Extrait les noms des Pokemon depuis les sprites dans le HTML - VERSION AMÉLIORÉE."""
+        soup = BeautifulSoup(html, 'html.parser')
+        sprites = soup.find_all('img')
+        
+        pokemon_names = []
+        for sprite in sprites:
+            alt_text = sprite.get('alt', '')
+            # ✅ NOUVEAU : Nettoyer les noms de Pokemon des sprites
+            if alt_text and alt_text not in pokemon_names:
+                # Nettoyer le nom (enlever les numéros, etc.)
+                clean_name = re.sub(r'#\d+\s*', '', alt_text).strip()
+                if clean_name and clean_name not in pokemon_names:
+                    pokemon_names.append(clean_name)
+        
+        return pokemon_names
     
     def parse_method_details_improved(self, method_text: str) -> tuple:
-        """Extrait niveau et conditions d'une méthode."""
-        level = None
-        conditions = None
-        
-        # Extraire niveau
-        level_match = re.search(r'niv\.\s*(\d+)', method_text)
-        if level_match:
-            level = int(level_match.group(1))
-        
-        # Extraire conditions spéciales
-        if 'Aura Porte-Bonheur' in method_text:
-            conditions = 'Aura Porte-Bonheur'
-        elif 'Sandwich' in method_text:
-            sandwich_match = re.search(r'Sandwich\s+(\w+)\s+N\.(\d+)', method_text)
-            if sandwich_match:
-                conditions = f"Sandwich {sandwich_match.group(1)} Niveau {sandwich_match.group(2)}"
-        elif 'Repousse' in method_text:
-            conditions = 'Avec Repousse'
-        
-        return level, conditions
+        """VERSION SIMPLIFIÉE : Plus de parsing complexe, juste retourner None."""
+        # ✅ SIMPLIFICATION : Plus de parsing des détails
+        return None, None
     
     def clean_method_name_improved(self, method: str) -> str:
-        """Nettoie le nom de la méthode - VERSION AMÉLIORÉE."""
+        """VERSION SIMPLIFIÉE : Garder la méthode complète."""
         if not method:
             return ''
         
-        # Supprimer les détails pour garder la méthode de base
-        method = re.sub(r'\s*niv\.\s*\d+.*', '', method)
-        method = re.sub(r'\s*N\.\d+.*', '', method)
-        method = re.sub(r'\s*Aura.*', '', method)
-        method = re.sub(r'\s*Repousse.*', '', method)
-        method = re.sub(r'Durant\s*l\'aventure', '', method)
-        
+        # ✅ SIMPLIFICATION : Juste nettoyer les espaces, garder tout le reste
         return method.strip()
     
     def clean_location_name_improved(self, location: str) -> str:
-        """Nettoie le nom de la localisation - VERSION AMÉLIORÉE."""
+        """VERSION SIMPLIFIÉE : Garder la localisation complète."""
         if not location:
             return ''
         
-        # Supprimer les infos de TC si présentes
-        location = re.sub(r'TC\s*=.*', '', location)
-        location = re.sub(r'\d+%.*', '', location)
+        # ✅ SIMPLIFICATION : Juste nettoyer les espaces, garder tout le contenu
         return location.strip()
     
     def clean_probability_improved(self, prob: str) -> str:
-        """Nettoie la probabilité - VERSION AMÉLIORÉE."""
+        """VERSION SIMPLIFIÉE : Garder la probabilité complète."""
         if not prob:
             return ''
         
-        # Extraire seulement le pourcentage principal
-        prob_match = re.search(r'(\d+(?:\.\d+)?%)', prob)
-        return prob_match.group(1) if prob_match else prob.strip()
+        # ✅ SIMPLIFICATION : Juste nettoyer les espaces, garder tout
+        return prob.strip()
 
     def clean_game_name(self, game_name):
-        """Nettoie le nom du jeu extrait du HTML."""
+        """Nettoie le nom du jeu extrait du HTML - VERSION AMÉLIORÉE."""
         if not game_name:
             return ""
         
         # Supprimer les éléments HTML restants
         game_name = game_name.strip()
         
-        # Mappage des noms courts vers les noms complets
+        # ✅ AMÉLIORATION : Mappage étendu avec variantes de noms
         game_mapping = {
-            'R': 'Rouge',
-            'B': 'Bleu',
-            'J': 'Jaune',
-            'O': 'Or',
-            'A': 'Argent',
-            'C': 'Cristal',
-            'RF': 'Rouge Feu',
-            'VF': 'Vert Feuille',
-            'D': 'Diamant',
-            'P': 'Perle',
-            'Pl': 'Platine',
-            'HG': 'HeartGold',
-            'SS': 'SoulSilver',
-            'N': 'Noir',
-            'B2': 'Blanc 2',
-            'N2': 'Noir 2',
-            'RO': 'Rubis Oméga',
-            'SA': 'Saphir Alpha',
-            'So': 'Soleil',
-            'Lu': 'Lune',
-            'US': 'Ultra-Soleil',
-            'UL': 'Ultra-Lune',
-            'LGP': 'LG: Pikachu',
-            'LGE': 'LG: Évoli',
-            'Ep': 'Épée',
-            'Bo': 'Bouclier',
-            'DE': 'Diamant Étincelant',
-            'PE': 'Perle Scintillante',
+            # Abréviations courantes
+            'R': 'Rouge', 'B': 'Bleu', 'J': 'Jaune',
+            'O': 'Or', 'A': 'Argent', 'C': 'Cristal',
+            'RF': 'Rouge Feu', 'VF': 'Vert Feuille',
+            'D': 'Diamant', 'P': 'Perle', 'Pl': 'Platine',
+            'HG': 'HeartGold', 'SS': 'SoulSilver',
+            'N': 'Noir', 'B2': 'Blanc 2', 'N2': 'Noir 2',
+            'RO': 'Rubis Oméga', 'SA': 'Saphir Alpha',
+            'So': 'Soleil', 'Lu': 'Lune',
+            'US': 'Ultra-Soleil', 'UL': 'Ultra-Lune',
+            'LGP': 'LG: Pikachu', 'LGE': 'LG: Évoli',
+            'Ep': 'Épée', 'Bo': 'Bouclier',
+            'DE': 'Diamant Ét.', 'PE': 'Perle Scint.',
             'LéA': 'Légendes Pokémon: Arceus',
-            'Ec': 'Écarlate',
-            'Vi': 'Violet',
-            'EV': 'Écarlate/Violet'
+            'Ec': 'Écarlate', 'Vi': 'Violet', 'EV': 'Écarlate/Violet',
+            
+            # ✅ NOUVEAU : Variantes de noms complets pour génération 7
+            'Ultra Soleil': 'Ultra-Soleil', 'Ultra Lune': 'Ultra-Lune',
+            'LG Pikachu': 'LG: Pikachu', 'LG Évoli': 'LG: Évoli',
+            'Let\'s Go Pikachu': 'LG: Pikachu', 'Let\'s Go Évoli': 'LG: Évoli',
+            
+            # Variantes avec espaces
+            'Diamant Étincelant': 'Diamant Ét.', 'Perle Scintillante': 'Perle Scint.',
+            'Légendes Pokémon Arceus': 'Légendes Pokémon: Arceus'
         }
         
         return game_mapping.get(game_name, game_name)
@@ -824,34 +1212,72 @@ class PokemonScraperV2:
         return has_valid_method_keyword
     
     def detect_generation_from_game(self, game_name):
-        """Détecte la génération à partir du nom du jeu."""
-        generation_map = {
+        """Détecte la génération à partir du nom du jeu - VERSION CORRIGÉE."""
+        if not game_name:
+            return 1
+        
+        game_name_lower = game_name.lower()
+        
+        # ✅ CORRECTION : Vérifier les noms COMPLETS d'abord pour éviter les fausses correspondances
+        # Ordre important : noms complets avant noms partiels !
+        generation_map_ordered = [
+            # 3G - Vérifier AVANT les jeux 1G pour éviter "Rouge" vs "Rouge Feu"
+            ('rouge feu', 3), ('vert feuille', 3), ('rubis oméga', 6), ('saphir alpha', 6),
+            ('rubis', 3), ('saphir', 3), ('émeraude', 3),
+            
             # 1G
-            'Rouge': 1, 'Bleu': 1, 'Jaune': 1,
+            ('rouge', 1), ('bleu', 1), ('jaune', 1),
+            
             # 2G
-            'Or': 2, 'Argent': 2, 'Cristal': 2,
-            # 3G
-            'Rubis': 3, 'Saphir': 3, 'Émeraude': 3, 'Rouge Feu': 3, 'Vert Feuille': 3,
+            ('or', 2), ('argent', 2), ('cristal', 2),
+            
             # 4G
-            'Diamant': 4, 'Perle': 4, 'Platine': 4, 'HeartGold': 4, 'SoulSilver': 4,
+            ('diamant étincelant', 8), ('perle scintillante', 8),  # Vérifier avant Diamant/Perle
+            ('diamant ét.', 8), ('perle scint.', 8),  # Versions courtes
+            ('diamant', 4), ('perle', 4), ('platine', 4), 
+            ('heartgold', 4), ('soulsilver', 4),
+            
             # 5G
-            'Noir': 5, 'Blanc': 5, 'Noir 2': 5, 'Blanc 2': 5,
+            ('noir 2', 5), ('blanc 2', 5), ('noir', 5), ('blanc', 5),
+            
             # 6G
-            'X': 6, 'Y': 6, 'Rubis Oméga': 6, 'Saphir Alpha': 6,
+            ('x', 6), ('y', 6),
+            
             # 7G
-            'Soleil': 7, 'Lune': 7, 'Ultra-Soleil': 7, 'Ultra-Lune': 7,
-            'LG: Pikachu': 7, 'LG: Évoli': 7,
+            ('ultra-soleil', 7), ('ultra-lune', 7), ('ultra soleil', 7), ('ultra lune', 7),
+            ('lg: pikachu', 7), ('lg: évoli', 7), ('let\'s go', 7),
+            ('soleil', 7), ('lune', 7),
+            
             # 8G
-            'Épée': 8, 'Bouclier': 8, 'Diamant Étincelant': 8, 'Perle Scintillante': 8,
-            'Légendes Pokémon: Arceus': 8,
+            ('légendes pokémon: arceus', 8), ('légendes pokémon arceus', 8), ('lpa', 8),
+            ('épée', 8), ('bouclier', 8),
+            
             # 9G
-            'Écarlate': 9, 'Violet': 9, 'EV': 9
+            ('écarlate', 9), ('violet', 9), ('ev', 9), ('écarlate/violet', 9)
+        ]
+        
+        # Parcourir dans l'ordre pour trouver la correspondance la plus spécifique
+        for game_pattern, generation in generation_map_ordered:
+            if game_pattern in game_name_lower:
+                return generation
+        
+        # ✅ NOUVEAU : Gestion spéciale pour les abréviations courantes
+        abbreviations = {
+            'rf': 3, 'vf': 3,  # Rouge Feu / Vert Feuille
+            'ro': 6, 'sa': 6,  # Rubis Oméga / Saphir Alpha
+            'hg': 4, 'ss': 4,  # HeartGold / SoulSilver
+            'de': 8, 'pe': 8,  # Diamant Étincelant / Perle Scintillante
+            'n2': 5, 'b2': 5,  # Noir 2 / Blanc 2
+            'us': 7, 'ul': 7,  # Ultra-Soleil / Ultra-Lune
+            'lgp': 7, 'lge': 7,  # Let's Go Pikachu/Évoli
+            'ep': 8, 'bo': 8,  # Épée / Bouclier
+            'ec': 9, 'vi': 9   # Écarlate / Violet
         }
         
-        for game, gen in generation_map.items():
-            if game.lower() in game_name.lower():
-                return gen
+        if game_name_lower in abbreviations:
+            return abbreviations[game_name_lower]
         
+        print(f"      ⚠️ Génération inconnue pour le jeu: {game_name}, assigné à Gen 1 par défaut")
         return 1  # Par défaut
     
     def find_additional_methods_by_keywords(self, page_text, details, pokemon_name):
@@ -968,7 +1394,7 @@ class PokemonScraperV2:
             return False
 
     def save_pokemon_to_database_v2(self, pokemon_info, sprite_path, details, is_shiny_lock=False):
-        """Sauvegarde un Pokemon avec le nouveau modèle V2."""
+        """Sauvegarde un Pokemon avec le nouveau modèle V2 - VERSION AVEC DÉDUPLICATION."""
         try:
             # Insérer le Pokemon principal
             pokemon_id = self.db.insert_pokemon(
@@ -1015,17 +1441,20 @@ class PokemonScraperV2:
                 except Exception as e:
                     print(f"      ⚠️ Erreur sauvegarde méthode générale {method_data['name']}: {e}")
             
-            # ✅ NOUVEAU : Sauvegarder les méthodes SPÉCIFIQUES
-            for method_data in details['specific_methods']:
+            # ✅ DÉDUPLICATION : Sauvegarder les méthodes SPÉCIFIQUES sans doublons
+            deduplicated_methods = self.deduplicate_specific_methods(details['specific_methods'])
+            print(f"      🔧 Déduplication: {len(details['specific_methods'])} -> {len(deduplicated_methods)} méthodes")
+            
+            for method_data in deduplicated_methods:
                 try:
                     method_id = self.db.insert_hunt_method(
-                        name=method_data['name'],
-                        description=method_data['description'],
+                        name=method_data['method'],
+                        description=f"Méthode: {method_data['method']}",
                         is_general=False,
                         category=method_data['category']
                     )
                     
-                    # Insérer la localisation
+                    # Insérer la localisation complète
                     location_id = self.db.insert_location(
                         name=method_data['location'],
                         region=method_data['game'],
@@ -1038,13 +1467,13 @@ class PokemonScraperV2:
                         self.db.link_pokemon_specific_method(
                             pokemon_id, method_id, game_id, location_id,
                             probability=method_data['probability'],
-                            conditions=method_data.get('conditions')
+                            conditions=None
                         )
                         
-                        print(f"      🎯 Méthode spécifique sauvegardée: {method_data['name']} dans {method_data['game']}")
+                        print(f"      🎯 Méthode spécifique sauvegardée: {method_data['method']} dans {method_data['game']}")
                     
                 except Exception as e:
-                    print(f"      ⚠️ Erreur sauvegarde méthode spécifique {method_data['name']}: {e}")
+                    print(f"      ⚠️ Erreur sauvegarde méthode spécifique {method_data['method']}: {e}")
             
             print(f"    ✅ Toutes les données sauvegardées pour {pokemon_info['name']}")
             return True
@@ -1053,41 +1482,122 @@ class PokemonScraperV2:
             print(f"    ❌ Erreur sauvegarde Pokemon: {e}")
             return False
 
-    def scrape_and_process_pokemon(self, pokemon_name, generation, number=None):
-        """Scrape complètement un Pokemon : sprite, image HQ, détails et sauvegarde."""
+    def deduplicate_specific_methods(self, methods):
+        """Déduplique les méthodes spécifiques intelligemment."""
+        if not methods:
+            return []
+        
+        # ✅ DÉDUPLICATION par clé unique (jeu + méthode + localisation)
+        seen_methods = {}
+        deduplicated = []
+        
+        for method in methods:
+            # Créer une clé unique pour identifier les doublons
+            game = method.get('game', '').strip()
+            method_name = method.get('method', '').strip()
+            location = method.get('location', '').strip()
+            probability = method.get('probability', '').strip()
+            
+            # Clé composée pour identifier les vrais doublons
+            key = f"{game}|{method_name}|{location}"
+            
+            if key in seen_methods:
+                # ✅ LOGIQUE DE PRÉFÉRENCE : Garder la méthode avec le plus d'infos
+                existing = seen_methods[key]
+                current_score = self.score_method_completeness(method)
+                existing_score = self.score_method_completeness(existing)
+                
+                if current_score > existing_score:
+                    # Remplacer par la méthode plus complète
+                    seen_methods[key] = method
+                    # Remplacer dans la liste dédupliquée
+                    for i, dup_method in enumerate(deduplicated):
+                        if self.methods_are_same(dup_method, existing):
+                            deduplicated[i] = method
+                            break
+            else:
+                # Nouvelle méthode, l'ajouter
+                seen_methods[key] = method
+                deduplicated.append(method)
+        
+        return deduplicated
+
+    def score_method_completeness(self, method):
+        """Score une méthode selon sa complétude (plus d'infos = score plus élevé)."""
+        score = 0
+        
+        # Points pour chaque champ rempli
+        if method.get('game') and len(method['game'].strip()) > 0:
+            score += 1
+        if method.get('method') and len(method['method'].strip()) > 0:
+            score += 2  # Méthode est plus importante
+        if method.get('location') and len(method['location'].strip()) > 0:
+            score += 1
+        if method.get('probability') and len(method['probability'].strip()) > 0:
+            score += 1
+        
+        # Bonus pour les méthodes complexes (plus d'infos = mieux)
+        method_text = method.get('method', '')
+        if any(keyword in method_text.lower() for keyword in ['repousse', 'niv.', 'blocs', 'sandwich', '2 par 2']):
+            score += 2
+        
+        # Bonus pour les lieux spécifiques
+        location_text = method.get('location', '')
+        if any(keyword in location_text.lower() for keyword in ['cave', 'grotte', 'route', 'parc', 'zone']):
+            score += 1
+        
+        return score
+
+    def methods_are_same(self, method1, method2):
+        """Vérifie si deux méthodes sont identiques."""
+        key1 = f"{method1.get('game', '')}|{method1.get('method', '')}|{method1.get('location', '')}"
+        key2 = f"{method2.get('game', '')}|{method2.get('method', '')}|{method2.get('location', '')}"
+        return key1 == key2
+
+    def scrape_and_process_pokemon(self, pokemon_name, generation, number=None, real_url=None):
+        """Scrape complètement un Pokemon avec logging complet."""
+        self.stats['total_processed'] += 1
+        details_url = real_url
+        
         try:
-            print(f"\n🔍 Scraping {pokemon_name} (Gen {generation})")
+            self.logger.info(f"[{self.stats['total_processed']}] Début scraping: {pokemon_name} (Gen {generation})")
             
             # Étape 1 : Télécharger le sprite
             sprite_filename = self.download_sprite(pokemon_name, generation, number)
-            if not sprite_filename:
-                print(f"    ❌ Impossible de télécharger le sprite pour {pokemon_name}")
-                return False
+            sprite_downloaded = sprite_filename is not None
             
-            # Étape 2 : Scraper les détails depuis la page
+            # Étape 2 : Utiliser l'URL réelle ou la construire en fallback
+            if not details_url:
             details_url = self.build_pokemon_details_url(pokemon_name, generation)
-            print(f"    🌐 URL détails: {details_url}")
+                self.logger.warning(f"URL construite en fallback: {details_url}")
+            else:
+                # Construire l'URL complète si nécessaire
+                if details_url.startswith('/'):
+                    details_url = self.base_url + details_url
+                self.logger.debug(f"URL réelle utilisée: {details_url}")
             
-            response = self.session.get(details_url)
-            if response.status_code != 200:
-                print(f"    ❌ Erreur HTTP {response.status_code} pour {details_url}")
-                return False
+            # Étape 3 : Récupérer la page de détails
+            html_content = self.get_page(details_url)
+            if not html_content:
+                raise Exception("Impossible de récupérer le contenu HTML")
             
-            soup = BeautifulSoup(response.content, 'html.parser')
+            soup = BeautifulSoup(html_content, 'html.parser')
             
-            # Étape 3 : Parser les détails avec le nouveau modèle V2
+            # Étape 4 : Parser les détails
             details = self.parse_pokemon_details_v2(soup, pokemon_name)
+            methods_count = len(details['general_methods']) + len(details['specific_methods'])
+            games_count = len(details['games'])
             
-            # Étape 4 : Détecter le shiny lock
+            self.logger.debug(f"Parsing terminé: {methods_count} méthodes, {games_count} jeux")
+            
+            # Étape 5 : Détecter le shiny lock
             is_shiny_lock = self.detect_shiny_lock(soup, pokemon_name)
-            print(f"    🔒 Shiny lock: {is_shiny_lock}")
             
-            # Étape 5 : Télécharger l'image haute qualité
+            # Étape 6 : Télécharger l'image haute qualité
             high_quality_filename = self.download_high_quality_image(soup, pokemon_name, generation, number)
-            if high_quality_filename:
-                print(f"    🖼️ Image HQ téléchargée: {high_quality_filename}")
+            hq_image_downloaded = high_quality_filename is not None
             
-            # Étape 6 : Préparer les informations du Pokemon
+            # Étape 7 : Préparer les informations du Pokemon
             pokemon_info = {
                 'name': pokemon_name,
                 'number': number or "XXX",
@@ -1096,7 +1606,7 @@ class PokemonScraperV2:
                 'high_quality_image': high_quality_filename
             }
             
-            # Étape 7 : Sauvegarder en base de données avec le nouveau modèle
+            # Étape 8 : Sauvegarder en base de données
             success = self.save_pokemon_to_database_v2(
                 pokemon_info, 
                 sprite_filename, 
@@ -1105,28 +1615,58 @@ class PokemonScraperV2:
             )
             
             if success:
-                print(f"    ✅ {pokemon_name} complètement processé!")
+                # Log du succès avec détails
+                self.log_success(pokemon_name, generation, {
+                    'sprite_downloaded': sprite_downloaded,
+                    'hq_image_downloaded': hq_image_downloaded,
+                    'methods_count': methods_count,
+                    'games_count': games_count,
+                    'is_shiny_lock': is_shiny_lock
+                })
                 return True
             else:
-                print(f"    ❌ Erreur sauvegarde pour {pokemon_name}")
-                return False
+                raise Exception("Erreur lors de la sauvegarde en base de données")
                 
+        except requests.exceptions.HTTPError as e:
+            self.log_error("HTTP_ERROR", pokemon_name, generation, details_url or "URL inconnue", e, 
+                         f"Code HTTP: {e.response.status_code if e.response else 'inconnu'}")
+            return False
+        except requests.exceptions.Timeout as e:
+            self.log_error("TIMEOUT", pokemon_name, generation, details_url or "URL inconnue", e, 
+                         "Délai d'attente dépassé")
+            return False
+        except requests.exceptions.RequestException as e:
+            self.log_error("NETWORK_ERROR", pokemon_name, generation, details_url or "URL inconnue", e, 
+                         "Erreur réseau")
+            return False
         except Exception as e:
-            print(f"    ❌ Erreur scraping {pokemon_name}: {e}")
+            # Déterminer le type d'erreur plus précisément
+            if "404" in str(e) or "not found" in str(e).lower():
+                error_type = "PAGE_NOT_FOUND"
+            elif "parse" in str(e).lower() or "beautifulsoup" in str(e).lower():
+                error_type = "PARSING_ERROR"
+            elif "database" in str(e).lower() or "sqlite" in str(e).lower():
+                error_type = "DATABASE_ERROR"
+            else:
+                error_type = "UNKNOWN_ERROR"
+                
+            self.log_error(error_type, pokemon_name, generation, details_url or "URL inconnue", e)
             return False
 
     def scrape_generation_complete(self, generation):
-        """Scrape complètement une génération : liste + détails + sprites."""
-        print(f"\n🎯 === GÉNÉRATION {generation} ===")
+        """Scrape complètement une génération avec logging détaillé."""
+        gen_start_time = datetime.now()
+        self.logger.info(f"=== DÉBUT GÉNÉRATION {generation} ===")
         
         # URL de la page de génération
         generation_url = f"{self.base_url}/page/jeuxvideo/dossier_shasse/pokedex_shasse/portail/{generation}g"
-        print(f"📄 Page: {generation_url}")
+        self.logger.info(f"URL génération: {generation_url}")
         
+        try:
         # Récupérer la page
         html_content = self.get_page(generation_url)
         if not html_content:
-            print(f"❌ Impossible de récupérer la page génération {generation}")
+                self.logger.error(f"Impossible de récupérer la page génération {generation}")
             return 0, 0
         
         # Parser la page
@@ -1136,17 +1676,18 @@ class PokemonScraperV2:
         pokemon_links = soup.find_all('a', href=re.compile(r'/page/jeuxvideo/dossier_shasse/pokedex_shasse/\d+g/'))
         
         if not pokemon_links:
-            print(f"❌ Aucun Pokemon trouvé dans la génération {generation}")
+                self.logger.warning(f"Aucun Pokemon trouvé dans la génération {generation}")
             return 0, 0
         
-        print(f"📊 {len(pokemon_links)} Pokemon trouvés")
-        
-        # Traiter chaque Pokemon IMMÉDIATEMENT
-        success_count = 0
-        error_count = 0
+            self.logger.info(f"🎯 {len(pokemon_links)} Pokemon trouvés dans la génération {generation}")
+            
+            # Traiter chaque Pokemon
+            gen_success = 0
+            gen_errors = 0
         
         for i, pokemon_link in enumerate(pokemon_links, 1):
-            print(f"\n[{i}/{len(pokemon_links)}]", end=" ")
+                # ✅ CORRECTION : Extraire le VRAI lien au lieu de le reconstruire
+                real_url = pokemon_link.get('href')
             
             # Extract number from link text if available
             text = pokemon_link.get_text().strip()
@@ -1158,25 +1699,45 @@ class PokemonScraperV2:
             # Extract Pokemon name from text (remove number)
             pokemon_name = re.sub(r'#\d+\s*', '', text).strip()
             
-            # Pass name and number to scrape_and_process_pokemon
-            if self.scrape_and_process_pokemon(pokemon_name, generation, number):
-                success_count += 1
+                self.logger.debug(f"[{i}/{len(pokemon_links)}] Processing: {pokemon_name} (#{number})")
+                self.logger.debug(f"URL réelle: {real_url}")
+                
+                # ✅ CORRECTION : Passer l'URL réelle au scraper
+                if self.scrape_and_process_pokemon(pokemon_name, generation, number, real_url):
+                    gen_success += 1
             else:
-                error_count += 1
+                    gen_errors += 1
             
-            # Pause entre chaque Pokemon
+                # Pause entre chaque Pokemon pour éviter la surcharge
             time.sleep(0.5)
         
-        print(f"\n📈 Génération {generation} terminée:")
-        print(f"  ✅ Succès: {success_count}")
-        print(f"  ❌ Erreurs: {error_count}")
-        
-        return success_count, error_count
+                # Log périodique des stats
+                if i % 10 == 0:
+                    current_rate = (gen_success / i * 100) if i > 0 else 0
+                    self.logger.info(f"Progression Gen {generation}: {i}/{len(pokemon_links)} ({current_rate:.1f}% succès)")
+            
+            # Statistiques finales de la génération
+            gen_duration = datetime.now() - gen_start_time
+            gen_total = gen_success + gen_errors
+            gen_rate = (gen_success / gen_total * 100) if gen_total > 0 else 0
+            
+            self.logger.info(f"=== FIN GÉNÉRATION {generation} ===")
+            self.logger.info(f"Durée: {gen_duration}")
+            self.logger.info(f"Traités: {gen_total}")
+            self.logger.info(f"Succès: {gen_success} ({gen_rate:.1f}%)")
+            self.logger.info(f"Erreurs: {gen_errors}")
+            
+            return gen_success, gen_errors
+            
+        except Exception as e:
+            self.log_error("GENERATION_ERROR", f"Generation_{generation}", generation, generation_url, e, 
+                         "Erreur lors du scraping de la génération")
+            return 0, 1
 
     def scrape_all_complete(self):
-        """Scrape complètement toutes les générations."""
-        print("🚀 DÉMARRAGE DU SCRAPING COMPLET V2")
-        print("="*50)
+        """Scrape complètement toutes les générations avec logging et statistiques finales."""
+        self.logger.info("🚀 DÉMARRAGE DU SCRAPING COMPLET V2")
+        self.logger.info("=" * 50)
         
         total_success = 0
         total_errors = 0
@@ -1184,36 +1745,66 @@ class PokemonScraperV2:
         # Parcourir toutes les générations
         for generation in range(1, 10):  # 1 à 9
             try:
+                self.logger.info(f"\n🎯 Traitement génération {generation}/9")
                 success, errors = self.scrape_generation_complete(generation)
                 total_success += success
                 total_errors += errors
                 
                 # Pause entre les générations
-                print(f"\n⏸️ Pause avant génération suivante...")
+                self.logger.info(f"⏸️ Pause avant génération suivante...")
                 time.sleep(2)
                 
             except Exception as e:
-                print(f"💥 Erreur génération {generation}: {e}")
+                self.logger.error(f"💥 Erreur génération {generation}: {e}")
                 total_errors += 1
                 continue
         
+        # Statistiques finales globales
+        self.logger.info(f"\n🎉 SCRAPING TERMINÉ !")
+        self.logger.info("=" * 50)
+        
+        # Utiliser les stats intégrées + totaux
+        final_total = self.stats['total_processed']
+        final_success = self.stats['success_count']
+        final_errors = self.stats['error_count']
+        final_rate = (final_success / final_total * 100) if final_total > 0 else 0
+        
+        self.logger.info(f"✅ Total succès: {final_success}")
+        self.logger.info(f"❌ Total erreurs: {final_errors}")
+        self.logger.info(f"📊 Taux de réussite: {final_rate:.1f}%")
+        
+        # Log des statistiques finales détaillées
+        self.log_stats()
+        
+        # Résumé pour la console
         print(f"\n🎉 SCRAPING TERMINÉ !")
-        print("="*50)
-        print(f"✅ Total succès: {total_success}")
-        print(f"❌ Total erreurs: {total_errors}")
-        if total_success + total_errors > 0:
-            print(f"📊 Taux de réussite: {total_success/(total_success+total_errors)*100:.1f}%")
+        print("=" * 50)
+        print(f"✅ Total succès: {final_success}")
+        print(f"❌ Total erreurs: {final_errors}")
+        print(f"📊 Taux de réussite: {final_rate:.1f}%")
+        
+        if self.stats['error_types']:
+            print(f"\n📋 Top 5 types d'erreurs:")
+            sorted_errors = sorted(self.stats['error_types'].items(), key=lambda x: x[1], reverse=True)
+            for error_type, count in sorted_errors[:5]:
+                percentage = (count / final_errors * 100) if final_errors > 0 else 0
+                print(f"  {error_type}: {count} ({percentage:.1f}%)")
+        
+        print(f"\n📁 Logs détaillés disponibles dans le dossier 'logs/'")
+        
+        return final_success, final_errors
 
     def test_single_pokemon(self, pokemon_name, generation):
-        """Test sur un seul Pokemon pour vérifier que tout fonctionne."""
-        print(f"🧪 TEST V2: {pokemon_name} (Gen {generation})")
+        """Test sur un seul Pokemon avec logging."""
+        self.logger.info(f"🧪 TEST SIMPLE: {pokemon_name} (Gen {generation})")
         
+        try:
         # Aller chercher dans la page de génération
         generation_url = f"{self.base_url}/page/jeuxvideo/dossier_shasse/pokedex_shasse/portail/{generation}g"
         html_content = self.get_page(generation_url)
         
         if not html_content:
-            print("❌ Impossible de récupérer la page de génération")
+                self.logger.error("Impossible de récupérer la page de génération")
             return False
         
         soup = BeautifulSoup(html_content, 'html.parser')
@@ -1223,7 +1814,12 @@ class PokemonScraperV2:
         for link in pokemon_links:
             text = link.get_text().strip()
             if pokemon_name.lower() in text.lower():
-                print(f"🎯 Pokemon trouvé: {text}")
+                    # ✅ CORRECTION : Extraire l'URL réelle
+                    real_url = link.get('href')
+                    
+                    self.logger.info(f"🎯 Pokemon trouvé: {text}")
+                    self.logger.debug(f"URL réelle: {real_url}")
+                    
                 # Extract number from link text if available
                 number = self.extract_pokemon_number_from_text(text)
                 if number is None:
@@ -1233,9 +1829,25 @@ class PokemonScraperV2:
                 # Extract Pokemon name from text (remove number)
                 clean_pokemon_name = re.sub(r'#\d+\s*', '', text).strip()
                 
-                return self.scrape_and_process_pokemon(clean_pokemon_name, generation, number)
-        
-        print(f"❌ Pokemon {pokemon_name} non trouvé dans la génération {generation}")
+                    # ✅ CORRECTION : Passer l'URL réelle au scraper
+                    result = self.scrape_and_process_pokemon(clean_pokemon_name, generation, number, real_url)
+                    
+                    # Log final du test
+                    if result:
+                        self.logger.info(f"✅ Test réussi pour {pokemon_name}")
+                    else:
+                        self.logger.error(f"❌ Test échoué pour {pokemon_name}")
+                    
+                    # Afficher les statistiques du test
+                    self.log_stats()
+                    return result
+            
+            self.logger.warning(f"❌ Pokemon {pokemon_name} non trouvé dans la génération {generation}")
+            return False
+            
+        except Exception as e:
+            generation_url = f"{self.base_url}/page/jeuxvideo/dossier_shasse/pokedex_shasse/portail/{generation}g"
+            self.log_error("TEST_ERROR", pokemon_name, generation, generation_url, e, "Erreur lors du test")
         return False
 
 if __name__ == "__main__":
