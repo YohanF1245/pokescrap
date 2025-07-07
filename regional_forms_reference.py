@@ -166,12 +166,19 @@ def is_regional_form(pokemon_name):
     """Vérifie si un Pokémon est une vraie forme régionale"""
     name_lower = pokemon_name.lower()
     
-    # Seuls les sprites avec préfixe XXX_ peuvent être des formes régionales
-    if not name_lower.startswith('xxx_'):
-        return False
+    # ✅ CORRECTION MAJEURE : Les noms Pokemon n'ont pas de préfixe XXX_
+    # Le préfixe XXX_ est dans le sprite filename, pas dans le nom Pokemon !
+    # Donc on vérifie directement les suffixes régionaux
     
-    # Vérification STRICTE des suffixes régionaux
-    regional_suffixes = ['_a_alola', '_g_galar', '_h_hisui', '_hi_hisui', '_p_paldea', '_pa_paldea']
+    # Patterns RÉELS utilisés dans la base de données
+    regional_suffixes = [
+        '-a',     # Alola (ex: Feunard-A, Miaouss-A)
+        '-g',     # Galar (ex: Canarticho-G, Galopa-G) 
+        '-h',     # Hisui (ex: Arcanin-H, Clamiral-H)
+        '-p',     # Paldea (ex: Axoloto-P, Tauros-P)
+        '-pa',    # Paldea alternatif
+        '-hi',    # Hisui alternatif
+    ]
     
     return any(suffix in name_lower for suffix in regional_suffixes)
 
@@ -191,18 +198,14 @@ def get_region_from_name(pokemon_name):
     """Retourne la région d'une forme régionale"""
     name_lower = pokemon_name.lower()
     
-    # Seuls les sprites XXX_ peuvent avoir une région
-    if not name_lower.startswith('xxx_'):
-        return None
-    
-    # Vérifier les patterns régionaux
-    if '_a_alola' in name_lower:
+    # ✅ CORRECTION : Plus besoin de vérifier le préfixe XXX_
+    if '-a' in name_lower:
         return 'alola'
-    elif '_g_galar' in name_lower:
+    elif '-g' in name_lower:
         return 'galar'
-    elif '_h_hisui' in name_lower or '_hi_hisui' in name_lower:
+    elif '-h' in name_lower or '-hi' in name_lower:
         return 'hisui'
-    elif '_p_paldea' in name_lower or '_pa_paldea' in name_lower:
+    elif '-p' in name_lower or '-pa' in name_lower:
         return 'paldea'
     
     return None
@@ -259,20 +262,57 @@ def should_be_in_other_forms_tab(pokemon_name):
     if name_lower.startswith('xxx_') and not is_regional_form(pokemon_name):
         return True
     
-    # Formes alternatives spéciales (dans les noms normaux)
-    other_forms_keywords = [
-        '_m', '_f', '_male', '_female', 'male', 'female', 'mâle', 'femelle',
-        '_west', '_east', 'west', 'east', 'ouest', 'est',
-        '_baile', '_pom', '_pau', '_sensu', 'baile', 'pom', 'pau', 'sensu',
-        '_heat', '_wash', '_frost', '_fan', '_mow', 'heat', 'wash', 'frost', 'fan', 'mow',
-        '_zen', '_school', '_core', 'zen', 'school', 'core',
-        '_diurne', '_nocturne', 'diurne', 'nocturne',
-        '_authentique', '_contrefacon', 'authentique', 'contrefacon',
-        '_aigu', '_grave', 'aigu', 'grave',
-        '_tp_temps_passe', 'temps_passe'
+    # ✅ AJOUT : Détection spécifique des formes alternatives courantes
+    
+    # Différences de genre avec patterns spécifiques
+    if any(pattern in name_lower for pattern in [' mâle', ' femelle', ' male', ' female', ' m', ' f']):
+        # Sauf si c'est juste une lettre isolée comme dans "Zarbi M"
+        if not ('zarbi' in name_lower and len(pokemon_name.split()[-1]) == 1):
+            return True
+    
+    # Variations géographiques  
+    if any(pattern in name_lower for pattern in [' ouest', ' est', ' west', ' east']):
+        return True
+    
+    # Formes saisonnières et variations de couleur
+    if any(pattern in name_lower for pattern in [
+        ' blanc', ' bleu', ' jaune', ' orange', ' rouge', ' vert', ' violet', ' noir',
+        ' white', ' blue', ' yellow', ' orange', ' red', ' green', ' purple', ' black',
+        ' été', ' automne', ' hiver', ' printemps',
+        ' summer', ' autumn', ' winter', ' spring'
+    ]):
+        return True
+    
+    # Formes spéciales avec tailles
+    if any(pattern in name_lower for pattern in [' s', ' m', ' l', ' xl', ' petit', ' grand', ' super']):
+        # Sauf Zarbi avec une seule lettre
+        if not ('zarbi' in name_lower and len(pokemon_name.split()[-1]) == 1):
+            return True
+    
+    # Formes Rotom avec patterns spécifiques
+    if any(base in name_lower for base in ['motisma', 'rotom']):
+        if any(forme in name_lower for forme in ['thermique', 'lavage', 'froid', 'hélice', 'tonte', 'heat', 'wash', 'frost', 'fan', 'mow']):
+            return True
+    
+    # Formes Oricorio/Plumeline 
+    if any(base in name_lower for base in ['oricorio', 'plumeline']):
+        if any(forme in name_lower for forme in ['baile', 'pom-pom', 'pau', 'sensu', 'flamenco', 'pom', 'hula', 'buyō']):
+            return True
+    
+    # Formes spéciales diverses
+    special_keywords = [
+        'cr.', 'no.', 'dé.', 'sa.', 'blc',  # Lougaroc Cr., Cheniselle Dé., Bargantua Blc
+        'éternel', 'authentique', 'contrefaçon',
+        'temps passé', 'diurne', 'nocturne',
+        'zen', 'transe', 'banc', 'noyau',
+        'floraison', 'bourgeon'
     ]
     
-    return any(keyword in name_lower for keyword in other_forms_keywords)
+    if any(keyword in name_lower for keyword in special_keywords):
+        return True
+    
+    # ✅ NOUVEAU : Si aucun pattern spécifique détecté, c'est un Pokemon normal
+    return False
 
 # ================================
 # RÉSUMÉ DES RÈGLES
