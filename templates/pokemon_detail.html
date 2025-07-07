@@ -20,60 +20,63 @@
         
         .pokemon-header {
             display: flex;
-            gap: 30px;
+            justify-content: center;
             margin-bottom: 30px;
-            align-items: flex-start;
-        }
-        
-        .pokemon-sprites {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            align-items: center;
-        }
-        
-        .sprite-container {
-            position: relative;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 15px;
-            padding: 20px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-            transition: transform 0.3s ease;
-        }
-        
-        .sprite-container:hover {
-            transform: scale(1.05);
-        }
-        
-        .sprite-normal {
-            width: 200px;
-            height: 200px;
-            object-fit: contain;
-            border-radius: 10px;
-        }
-        
-        .sprite-hq {
-            width: 250px;
-            height: 250px;
-            object-fit: contain;
-            border-radius: 10px;
-        }
-        
-        .sprite-label {
-            text-align: center;
-            margin-top: 10px;
-            font-weight: bold;
-            color: #fff;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
         }
         
         .pokemon-info {
-            flex: 2;
             background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
             border-radius: 15px;
             padding: 25px;
             color: white;
+            max-width: 900px;
+            width: 100%;
+            position: relative;
+        }
+        
+        /* ✅ NOUVEAU : Container principal avec sprites intégrés */
+        .pokemon-main-content {
+            display: flex;
+            gap: 25px;
+            align-items: flex-start;
+        }
+        
+        .pokemon-sprites-integrated {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            min-width: 140px;
+        }
+        
+        .sprite-container-small {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            padding: 10px;
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+        
+        .sprite-container-small:hover {
+            transform: scale(1.05);
+            background: rgba(255, 255, 255, 0.25);
+        }
+        
+        .sprite-small {
+            width: 120px;
+            height: 120px;
+            object-fit: contain;
+            border-radius: 8px;
+        }
+        
+        .sprite-label-small {
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-top: 5px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+        
+        .pokemon-details {
+            flex: 1;
         }
         
         .pokemon-title {
@@ -127,29 +130,33 @@
             color: #fff;
         }
         
+        /* ✅ AMÉLIORATION : Jeux en largeur réduite */
         .games-list {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
+            max-width: 600px; /* Largeur limitée */
         }
         
         .game-tag {
             background: rgba(255, 255, 255, 0.2);
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 0.9em;
+            padding: 4px 10px; /* Réduit la taille */
+            border-radius: 15px;
+            font-size: 0.85em; /* Police plus petite */
             font-weight: 500;
+            white-space: nowrap;
         }
         
-        .methods-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
+        /* ✅ AMÉLIORATION : Méthodes générales en 2x2 */
+        .methods-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* 2 colonnes */
+            gap: 10px;
         }
         
         .method-item {
             background: rgba(255, 255, 255, 0.15);
-            padding: 10px;
+            padding: 12px;
             border-radius: 8px;
             border-left: 4px solid #ffd700;
         }
@@ -157,11 +164,13 @@
         .method-name {
             font-weight: bold;
             margin-bottom: 5px;
+            font-size: 0.95em;
         }
         
         .method-description {
-            font-size: 0.9em;
+            font-size: 0.8em;
             opacity: 0.9;
+            line-height: 1.3;
         }
         
         .generations-section {
@@ -251,17 +260,24 @@
         }
         
         @media (max-width: 768px) {
-            .pokemon-header {
+            .pokemon-main-content {
                 flex-direction: column;
                 text-align: center;
             }
             
-            .pokemon-sprites {
-                order: 2;
+            .pokemon-sprites-integrated {
+                flex-direction: row;
+                justify-content: center;
+                min-width: auto;
             }
             
-            .pokemon-info {
-                order: 1;
+            .methods-grid {
+                grid-template-columns: 1fr; /* 1 colonne sur mobile */
+            }
+            
+            .games-list {
+                justify-content: center;
+                max-width: none;
             }
             
             .methods-table {
@@ -278,85 +294,89 @@
             <i class="fas fa-arrow-left"></i> Retour au Dashboard
         </a>
         
-        <!-- En-tête avec sprites et informations -->
+        <!-- En-tête avec informations et sprites intégrés -->
         <div class="pokemon-header">
-            <!-- Sprites à gauche -->
-            <div class="pokemon-sprites">
-                <div class="sprite-container">
-                    {% if pokemon.sprite_url %}
-                        <img src="{{ url_for('serve_assets', filename=pokemon.sprite_url.replace('assets/', '').replace('assets\\', '').replace('\\', '/')) }}" 
-                             alt="{{ pokemon.name }} Sprite" 
-                             class="sprite-normal"
-                             onerror="this.src='{{ url_for('static', filename='placeholder.svg') }}'">
-                    {% else %}
-                        <img src="{{ url_for('static', filename='placeholder.svg') }}" 
-                             alt="{{ pokemon.name }} Sprite" 
-                             class="sprite-normal">
-                    {% endif %}
-                    <div class="sprite-label">Sprite Shiny</div>
-                </div>
-                
-                <div class="sprite-container">
-                    {% if pokemon.high_quality_image %}
-                        <img src="{{ url_for('serve_assets', filename=pokemon.high_quality_image.replace('assets/', '').replace('assets\\', '').replace('\\', '/')) }}" 
-                             alt="{{ pokemon.name }} Image HQ" 
-                             class="sprite-hq"
-                             onerror="this.src='{{ url_for('static', filename='placeholder.svg') }}'">
-                    {% else %}
-                        <img src="{{ url_for('static', filename='placeholder.svg') }}" 
-                             alt="{{ pokemon.name }} Image HQ" 
-                             class="sprite-hq">
-                    {% endif %}
-                    <div class="sprite-label">Image Haute Qualité</div>
-                </div>
-            </div>
-            
-            <!-- Informations à droite -->
             <div class="pokemon-info">
-                <h1 class="pokemon-title">{{ pokemon.name }}</h1>
-                <div class="pokemon-number">#{{ pokemon.number if pokemon.number else 'XXX' }}</div>
-                <div class="pokemon-generation">Génération {{ pokemon.generation }}</div>
-                
-                <div class="shiny-lock-indicator {{ 'shiny-lock-yes' if pokemon.is_shiny_lock else 'shiny-lock-no' }}">
-                    {% if pokemon.is_shiny_lock %}
-                        <i class="fas fa-lock"></i> Shiny Lock
-                    {% else %}
-                        <i class="fas fa-unlock"></i> Shiny Disponible
-                    {% endif %}
-                </div>
-                
-                <!-- Jeux disponibles -->
-                <div class="info-section">
-                    <h3><i class="fas fa-gamepad"></i> Jeux Disponibles</h3>
-                    {% if pokemon.all_games %}
-                        <div class="games-list">
-                            {% for game in pokemon.all_games %}
-                                <span class="game-tag">{{ game.name }}</span>
-                            {% endfor %}
+                <div class="pokemon-main-content">
+                    <!-- ✅ NOUVEAU : Sprites intégrés dans le carré rose -->
+                    <div class="pokemon-sprites-integrated">
+                        <div class="sprite-container-small">
+                            {% if pokemon.sprite_url %}
+                                <img src="{{ url_for('serve_assets', filename=pokemon.sprite_url.replace('assets/', '').replace('assets\\', '').replace('\\', '/')) }}" 
+                                     alt="{{ pokemon.name }} Sprite" 
+                                     class="sprite-small"
+                                     onerror="this.src='{{ url_for('static', filename='placeholder.svg') }}'">
+                            {% else %}
+                                <img src="{{ url_for('static', filename='placeholder.svg') }}" 
+                                     alt="{{ pokemon.name }} Sprite" 
+                                     class="sprite-small">
+                            {% endif %}
+                            <div class="sprite-label-small">Sprite Shiny</div>
                         </div>
-                    {% else %}
-                        <p class="no-data">Aucun jeu spécifique trouvé</p>
-                    {% endif %}
-                </div>
-                
-                <!-- Méthodes générales -->
-                <div class="info-section">
-                    <h3><i class="fas fa-crosshairs"></i> Méthodes Générales</h3>
-                    {% if pokemon.general_methods %}
-                        <div class="methods-list">
-                            {% for method in pokemon.general_methods %}
-                                <div class="method-item">
-                                    <div class="method-name">{{ method.name }}</div>
-                                    <div class="method-description">{{ method.description }}</div>
-                                    {% if method.conditions %}
-                                        <div class="method-conditions">Conditions: {{ method.conditions }}</div>
-                                    {% endif %}
+                        
+                        <div class="sprite-container-small">
+                            {% if pokemon.high_quality_image %}
+                                <img src="{{ url_for('serve_assets', filename=pokemon.high_quality_image.replace('assets/', '').replace('assets\\', '').replace('\\', '/')) }}" 
+                                     alt="{{ pokemon.name }} Image HQ" 
+                                     class="sprite-small"
+                                     onerror="this.src='{{ url_for('static', filename='placeholder.svg') }}'">
+                            {% else %}
+                                <img src="{{ url_for('static', filename='placeholder.svg') }}" 
+                                     alt="{{ pokemon.name }} Image HQ" 
+                                     class="sprite-small">
+                            {% endif %}
+                            <div class="sprite-label-small">Image Haute Qualité</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Détails du Pokemon -->
+                    <div class="pokemon-details">
+                        <h1 class="pokemon-title">{{ pokemon.name }}</h1>
+                        <div class="pokemon-number">#{{ pokemon.number if pokemon.number else 'XXX' }}</div>
+                        <div class="pokemon-generation">Génération {{ pokemon.generation }}</div>
+                        
+                        <div class="shiny-lock-indicator {{ 'shiny-lock-yes' if pokemon.is_shiny_lock else 'shiny-lock-no' }}">
+                            {% if pokemon.is_shiny_lock %}
+                                <i class="fas fa-lock"></i> Shiny Lock
+                            {% else %}
+                                <i class="fas fa-unlock"></i> Shiny Disponible
+                            {% endif %}
+                        </div>
+                        
+                        <!-- ✅ AMÉLIORATION : Jeux avec largeur réduite -->
+                        <div class="info-section">
+                            <h3><i class="fas fa-gamepad"></i> Jeux Disponibles</h3>
+                            {% if pokemon.all_games %}
+                                <div class="games-list">
+                                    {% for game in pokemon.all_games %}
+                                        <span class="game-tag">{{ game.name }}</span>
+                                    {% endfor %}
                                 </div>
-                            {% endfor %}
+                            {% else %}
+                                <p class="no-data">Aucun jeu spécifique trouvé</p>
+                            {% endif %}
                         </div>
-                    {% else %}
-                        <p class="no-data">Aucune méthode générale trouvée</p>
-                    {% endif %}
+                        
+                        <!-- ✅ AMÉLIORATION : Méthodes générales en grille 2x2 -->
+                        <div class="info-section">
+                            <h3><i class="fas fa-crosshairs"></i> Méthodes Générales</h3>
+                            {% if pokemon.general_methods %}
+                                <div class="methods-grid">
+                                    {% for method in pokemon.general_methods %}
+                                        <div class="method-item">
+                                            <div class="method-name">{{ method.name }}</div>
+                                            <div class="method-description">{{ method.description }}</div>
+                                            {% if method.conditions %}
+                                                <div class="method-conditions">{{ method.conditions }}</div>
+                                            {% endif %}
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <p class="no-data">Aucune méthode générale trouvée</p>
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
