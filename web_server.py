@@ -17,21 +17,11 @@ from regional_forms_reference import (
 app = Flask(__name__)
 
 # ✅ CORRECTION : Utiliser un chemin absolu pour la base de données
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pokemon_shasse.db")
-print(f"🔍 Chemin de la base de données : {DB_PATH}")
-print(f"📁 Fichier existe : {os.path.exists(DB_PATH)}")
+# Chemin vers la base de données
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pokemon_shasse_v2.db")  # ✅ Utiliser la nouvelle base propre
 
-# ✅ CORRECTION : Vérifier que la base de données existe
-if not os.path.exists(DB_PATH):
-    print("❌ ERREUR : Base de données introuvable !")
-    print("💡 Vérifiez que pokemon_shasse.db est présent dans le répertoire")
-    print(f"📂 Répertoire actuel : {os.getcwd()}")
-    print(f"📂 Fichiers présents : {os.listdir('.')}")
-else:
-    print("✅ Base de données trouvée")
-
-# ✅ NOUVEAU : Utiliser DatabaseManagerV2 avec chemin absolu
-db = DatabaseManagerV2(DB_PATH)
+# Base de données
+db = DatabaseManagerV2("pokemon_shasse_v2.db")  # ✅ Utiliser la nouvelle base propre
 
 @app.route('/')
 def index():
@@ -579,7 +569,7 @@ def api_stats():
 
 @app.route('/api/sprites')
 def api_sprites():
-    """API pour les sprites organisés par génération."""
+    """API pour les sprites organisés par génération, formes régionales et autres formes."""
     try:
         conn = db.create_connection()
         cursor = conn.cursor()
@@ -594,40 +584,79 @@ def api_sprites():
         
         pokemon_data = cursor.fetchall()
         
-        # Organiser par génération
+        # Initialiser les structures
         generations = {}
+        regional_forms = {
+            'alola': {'name': 'Formes d\'Alola', 'sprites': []},
+            'galar': {'name': 'Formes de Galar', 'sprites': []},
+            'hisui': {'name': 'Formes de Hisui', 'sprites': []},
+            'paldea': {'name': 'Formes de Paldea', 'sprites': []}
+        }
+        other_forms = {'other': {'name': 'Autres Formes', 'sprites': []}}
+        
+        # Classifier chaque Pokemon
         for pokemon in pokemon_data:
             name, number, gen, sprite_url, is_shiny_lock, created_at = pokemon
-            
-            if gen not in generations:
-                generations[gen] = {
-                    'name': f'Génération {gen}',
-                    'sprites': []
-                }
             
             # Nettoyer l'URL du sprite
             clean_sprite_url = None
             if sprite_url:
                 clean_sprite_url = sprite_url.replace('assets/', '').replace('assets\\', '').replace('\\', '/')
             
-            generations[gen]['sprites'].append({
+            pokemon_entry = {
                 'name': name,
                 'number': number,
                 'sprite_url': clean_sprite_url,
                 'is_shiny_lock': is_shiny_lock,
                 'created_at': created_at,
-                'generation': gen  # Ajouter la génération pour le JavaScript
-            })
+                'generation': gen
+            }
+            
+            # Classifier selon les règles du fichier de référence
+            if should_be_in_pokedex_tab(name):
+                # Va dans l'onglet pokédex principal (génération)
+                if gen not in generations:
+                    generations[gen] = {
+                        'name': f'Génération {gen}',
+                        'sprites': []
+                    }
+                generations[gen]['sprites'].append(pokemon_entry)
+                
+            elif should_be_in_regional_tab(name):
+                # Va dans un onglet forme régionale
+                region = get_region_from_name(name)
+                if region and region in regional_forms:
+                    regional_forms[region]['sprites'].append(pokemon_entry)
+                    
+            elif should_be_in_other_forms_tab(name):
+                # Va dans l'onglet autres formes
+                other_forms['other']['sprites'].append(pokemon_entry)
+                
+            else:
+                # Fallback : va dans l'onglet génération si aucune règle ne correspond
+                if gen not in generations:
+                    generations[gen] = {
+                        'name': f'Génération {gen}',
+                        'sprites': []
+                    }
+                generations[gen]['sprites'].append(pokemon_entry)
+        
+        # Nettoyer les sections vides
+        filtered_regional_forms = {k: v for k, v in regional_forms.items() if v['sprites']}
+        filtered_other_forms = {k: v for k, v in other_forms.items() if v['sprites']}
         
         conn.close()
         
         return jsonify({
             'generations': generations,
-            'regional_forms': {},  # TODO: Implémenter si nécessaire
-            'other_forms': {}      # TODO: Implémenter si nécessaire
+            'regional_forms': filtered_regional_forms,
+            'other_forms': filtered_other_forms
         })
         
     except Exception as e:
+        print(f"❌ Erreur dans api_sprites: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/pokemon/details/<pokemon_name>/<int:generation>')
