@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Database - Pokemon Shasse</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .debug-container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 20px;
+            background: rgba(10, 25, 47, 0.95);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(79, 172, 254, 0.3);
+        }
+        
+        .debug-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .debug-stat-card {
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.2), rgba(0, 212, 255, 0.1));
+            border: 1px solid rgba(79, 172, 254, 0.3);
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .debug-stat-card h4 {
+            color: #4FACFE;
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+        
+        .debug-stat-card .number {
+            color: #00D4FF;
+            font-size: 24px;
+            font-weight: bold;
+            font-family: 'Orbitron', monospace;
+        }
+        
+        .pokemon-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .pokemon-table th,
+        .pokemon-table td {
+            padding: 12px 8px;
+            text-align: left;
+            border-bottom: 1px solid rgba(79, 172, 254, 0.2);
+            color: #E0E6ED;
+            font-size: 12px;
+        }
+        
+        .pokemon-table th {
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.3), rgba(0, 212, 255, 0.2));
+            color: #4FACFE;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-size: 11px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .pokemon-table tr:hover {
+            background: rgba(79, 172, 254, 0.1);
+        }
+        
+        .pokemon-sprite {
+            width: 40px;
+            height: 40px;
+            object-fit: contain;
+            border-radius: 5px;
+        }
+        
+        .generation-badge {
+            background: linear-gradient(135deg, #4FACFE, #00D4FF);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        
+        .shiny-lock-yes {
+            color: #ff6b6b;
+            font-weight: bold;
+        }
+        
+        .shiny-lock-no {
+            color: #51cf66;
+            font-weight: bold;
+        }
+        
+        .method-count {
+            background: rgba(79, 172, 254, 0.2);
+            color: #4FACFE;
+            padding: 2px 6px;
+            border-radius: 8px;
+            font-size: 10px;
+            font-weight: bold;
+            display: inline-block;
+            margin: 1px;
+        }
+        
+        .game-tag {
+            background: rgba(0, 212, 255, 0.2);
+            color: #00D4FF;
+            padding: 1px 4px;
+            border-radius: 4px;
+            font-size: 9px;
+            margin: 1px;
+            display: inline-block;
+        }
+        
+        .location-tag {
+            background: rgba(255, 184, 0, 0.2);
+            color: #FFB800;
+            padding: 1px 4px;
+            border-radius: 4px;
+            font-size: 9px;
+            margin: 1px;
+            display: inline-block;
+        }
+        
+        .filter-container {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .filter-input {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(79, 172, 254, 0.3);
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: #E0E6ED;
+            font-size: 14px;
+        }
+        
+        .filter-input:focus {
+            outline: none;
+            border-color: #4FACFE;
+            box-shadow: 0 0 10px rgba(79, 172, 254, 0.3);
+        }
+        
+        .table-container {
+            max-height: 600px;
+            overflow-y: auto;
+            border-radius: 10px;
+            border: 1px solid rgba(79, 172, 254, 0.3);
+        }
+        
+        .export-btn {
+            background: linear-gradient(135deg, #4FACFE, #00D4FF);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            text-decoration: none;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        
+        .export-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(79, 172, 254, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <div class="background-animation"></div>
+    
+    <header class="header">
+        <div class="container">
+            <div class="logo">
+                <i class="fas fa-bug"></i>
+                <span>Debug Database</span>
+            </div>
+            <div class="last-update">
+                <a href="/" class="export-btn">
+                    <i class="fas fa-home"></i> Retour au Dashboard
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="container">
+            <div class="debug-container">
+                <h1><i class="fas fa-database"></i> Données Complètes de la Base de Données</h1>
+                
+                <!-- Statistiques générales -->
+                <div class="debug-stats">
+                    <div class="debug-stat-card">
+                        <h4><i class="fas fa-dragon"></i> Total Pokemon</h4>
+                        <div class="number">{{ statistics.total_pokemon }}</div>
+                    </div>
+                    <div class="debug-stat-card">
+                        <h4><i class="fas fa-gamepad"></i> Total Jeux</h4>
+                        <div class="number">{{ statistics.total_games }}</div>
+                    </div>
+                    <div class="debug-stat-card">
+                        <h4><i class="fas fa-crosshairs"></i> Total Méthodes</h4>
+                        <div class="number">{{ statistics.total_hunt_methods }}</div>
+                    </div>
+                    <div class="debug-stat-card">
+                        <h4><i class="fas fa-map-marker-alt"></i> Total Localisations</h4>
+                        <div class="number">{{ statistics.total_locations }}</div>
+                    </div>
+                    <div class="debug-stat-card">
+                        <h4><i class="fas fa-link"></i> Méthodes Générales</h4>
+                        <div class="number">{{ statistics.total_general_method_associations }}</div>
+                    </div>
+                    <div class="debug-stat-card">
+                        <h4><i class="fas fa-link"></i> Méthodes Spécifiques</h4>
+                        <div class="number">{{ statistics.total_specific_method_associations }}</div>
+                    </div>
+                    <div class="debug-stat-card">
+                        <h4><i class="fas fa-link"></i> Pokemon-Jeux</h4>
+                        <div class="number">{{ statistics.total_pokemon_game_associations }}</div>
+                    </div>
+                </div>
+                
+                <!-- Filtres et contrôles -->
+                <div class="filter-container">
+                    <input type="text" id="searchFilter" class="filter-input" placeholder="🔍 Rechercher un Pokemon...">
+                    <select id="generationFilter" class="filter-input">
+                        <option value="">Toutes les générations</option>
+                        {% for gen in range(1, 10) %}
+                        <option value="{{ gen }}">Génération {{ gen }}</option>
+                        {% endfor %}
+                    </select>
+                    <select id="shinyLockFilter" class="filter-input">
+                        <option value="">Shiny Lock (Tous)</option>
+                        <option value="true">Shiny Lock Oui</option>
+                        <option value="false">Shiny Lock Non</option>
+                    </select>
+                    <button id="exportJson" class="export-btn">
+                        <i class="fas fa-download"></i> Export JSON
+                    </button>
+                </div>
+                
+                <!-- Tableau principal -->
+                <div class="table-container">
+                    <table class="pokemon-table" id="pokemonTable">
+                        <thead>
+                            <tr>
+                                <th><i class="fas fa-hashtag"></i> ID</th>
+                                <th><i class="fas fa-image"></i> Sprite</th>
+                                <th><i class="fas fa-tag"></i> Nom</th>
+                                <th><i class="fas fa-sort-numeric-up"></i> Numéro</th>
+                                <th><i class="fas fa-layer-group"></i> Génération</th>
+                                <th><i class="fas fa-lock"></i> Shiny Lock</th>
+                                <th><i class="fas fa-magic"></i> Méthodes Générales</th>
+                                <th><i class="fas fa-bullseye"></i> Méthodes Spécifiques</th>
+                                <th><i class="fas fa-gamepad"></i> Jeux</th>
+                                <th><i class="fas fa-map-marker-alt"></i> Localisations</th>
+                                <th><i class="fas fa-clock"></i> Ajouté le</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for pokemon in pokemon_data %}
+                            <tr data-generation="{{ pokemon.generation }}" 
+                                data-shiny-lock="{{ pokemon.is_shiny_lock }}"
+                                data-name="{{ pokemon.name.lower() }}">
+                                <td>{{ pokemon.id }}</td>
+                                <td>
+                                    {% if pokemon.sprite_url %}
+                                    <img src="/assets/{{ pokemon.sprite_url.replace('assets/', '').replace('assets\\', '').replace('\\', '/') }}" 
+                                         alt="{{ pokemon.name }}" class="pokemon-sprite" 
+                                         onerror="this.style.display='none'">
+                                    {% else %}
+                                    <i class="fas fa-question-circle" style="color: #666;"></i>
+                                    {% endif %}
+                                </td>
+                                <td><strong>{{ pokemon.name }}</strong></td>
+                                <td>{{ pokemon.number or 'N/A' }}</td>
+                                <td><span class="generation-badge">Gen {{ pokemon.generation }}</span></td>
+                                <td>
+                                    <span class="{% if pokemon.is_shiny_lock %}shiny-lock-yes{% else %}shiny-lock-no{% endif %}">
+                                        {% if pokemon.is_shiny_lock %}OUI{% else %}NON{% endif %}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="method-count">{{ pokemon.total_general_methods }}</span>
+                                    {% for method in pokemon.general_methods[:3] %}
+                                    <div class="game-tag" title="{{ method.description }}">{{ method.name }}</div>
+                                    {% endfor %}
+                                    {% if pokemon.general_methods|length > 3 %}
+                                    <div class="game-tag">+{{ pokemon.general_methods|length - 3 }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="method-count">{{ pokemon.total_specific_methods }}</span>
+                                    {% for method in pokemon.specific_methods[:3] %}
+                                    <div class="game-tag" title="{{ method.description }} - {{ method.game }}">{{ method.name }}</div>
+                                    {% endfor %}
+                                    {% if pokemon.specific_methods|length > 3 %}
+                                    <div class="game-tag">+{{ pokemon.specific_methods|length - 3 }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="method-count">{{ pokemon.total_games }}</span>
+                                    {% for game in pokemon.games[:3] %}
+                                    <div class="game-tag">{{ game.name }}</div>
+                                    {% endfor %}
+                                    {% if pokemon.games|length > 3 %}
+                                    <div class="game-tag">+{{ pokemon.games|length - 3 }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="method-count">{{ pokemon.total_locations }}</span>
+                                    {% for location in pokemon.locations[:3] %}
+                                    <div class="location-tag">{{ location.name }}</div>
+                                    {% endfor %}
+                                    {% if pokemon.locations|length > 3 %}
+                                    <div class="location-tag">+{{ pokemon.locations|length - 3 }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>{{ pokemon.created_at[:10] if pokemon.created_at else 'N/A' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Filtrage dynamique
+        const searchFilter = document.getElementById('searchFilter');
+        const generationFilter = document.getElementById('generationFilter');
+        const shinyLockFilter = document.getElementById('shinyLockFilter');
+        const table = document.getElementById('pokemonTable');
+        const rows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+
+        function filterTable() {
+            const searchTerm = searchFilter.value.toLowerCase();
+            const selectedGeneration = generationFilter.value;
+            const selectedShinyLock = shinyLockFilter.value;
+
+            for (let row of rows) {
+                const name = row.dataset.name;
+                const generation = row.dataset.generation;
+                const shinyLock = row.dataset.shinyLock;
+
+                const matchesSearch = name.includes(searchTerm);
+                const matchesGeneration = !selectedGeneration || generation === selectedGeneration;
+                const matchesShinyLock = !selectedShinyLock || shinyLock === selectedShinyLock;
+
+                if (matchesSearch && matchesGeneration && matchesShinyLock) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            }
+        }
+
+        searchFilter.addEventListener('input', filterTable);
+        generationFilter.addEventListener('change', filterTable);
+        shinyLockFilter.addEventListener('change', filterTable);
+
+        // Export JSON
+        document.getElementById('exportJson').addEventListener('click', function() {
+            fetch('/debug')
+                .then(response => {
+                    if (response.headers.get('Content-Type').includes('application/json')) {
+                        return response.json();
+                    } else {
+                        // Si c'est du HTML, faire une requête vers l'API JSON
+                        return fetch('/debug?format=json').then(r => r.json());
+                    }
+                })
+                .then(data => {
+                    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'pokemon_debug_data.json';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                })
+                .catch(err => console.error('Erreur export:', err));
+        });
+    </script>
+</body>
+</html> 
