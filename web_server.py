@@ -811,6 +811,177 @@ def debug_database():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/debug')
+def debug():
+    """Page de debug qui affiche tous les Pokemon avec toutes leurs valeurs associées."""
+    try:
+        # Vérifier si on veut le format JSON
+        format_type = request.args.get('format', 'html')
+        
+        conn = db.create_connection()
+        cursor = conn.cursor()
+        
+        # Récupérer tous les Pokemon avec toutes leurs informations
+        cursor.execute('''
+            SELECT id, name, number, generation, sprite_url, is_shiny_lock, 
+                   high_quality_image, description, created_at
+            FROM pokemon 
+            ORDER BY generation, number, name
+        ''')
+        
+        pokemon_data = []
+        for row in cursor.fetchall():
+            pokemon_id, name, number, generation, sprite_url, is_shiny_lock, high_quality_image, description, created_at = row
+            
+            # Récupérer les méthodes générales
+            cursor.execute('''
+                SELECT hm.name, hm.description, hm.category, pgm.conditions, pgm.notes
+                FROM pokemon_general_methods pgm
+                JOIN hunt_methods hm ON pgm.hunt_method_id = hm.id
+                WHERE pgm.pokemon_id = ?
+            ''', (pokemon_id,))
+            general_methods = []
+            for method_row in cursor.fetchall():
+                method_name, method_description, category, conditions, notes = method_row
+                general_methods.append({
+                    'name': method_name,
+                    'description': method_description,
+                    'category': category,
+                    'conditions': conditions,
+                    'notes': notes
+                })
+            
+            # Récupérer les méthodes spécifiques
+            cursor.execute('''
+                SELECT hm.name, hm.description, g.name as game, l.name as location, 
+                       psm.probability, psm.conditions, psm.notes
+                FROM pokemon_specific_methods psm
+                JOIN hunt_methods hm ON psm.hunt_method_id = hm.id
+                JOIN games g ON psm.game_id = g.id
+                LEFT JOIN locations l ON psm.location_id = l.id
+                WHERE psm.pokemon_id = ?
+            ''', (pokemon_id,))
+            specific_methods = []
+            for method_row in cursor.fetchall():
+                method_name, method_description, game, location, probability, conditions, notes = method_row
+                specific_methods.append({
+                    'name': method_name,
+                    'description': method_description,
+                    'game': game,
+                    'location': location,
+                    'probability': probability,
+                    'conditions': conditions,
+                    'notes': notes
+                })
+            
+            # Récupérer tous les jeux associés
+            cursor.execute('''
+                SELECT g.name, g.generation, pg.availability
+                FROM pokemon_games pg
+                JOIN games g ON pg.game_id = g.id
+                WHERE pg.pokemon_id = ?
+                ORDER BY g.generation, g.name
+            ''', (pokemon_id,))
+            games = []
+            for game_row in cursor.fetchall():
+                game_name, game_generation, availability = game_row
+                games.append({
+                    'name': game_name,
+                    'generation': game_generation,
+                    'availability': availability
+                })
+            
+            # Récupérer toutes les localisations associées (via les méthodes spécifiques)
+            cursor.execute('''
+                SELECT DISTINCT l.name, l.region, l.description
+                FROM pokemon_specific_methods psm
+                JOIN locations l ON psm.location_id = l.id
+                WHERE psm.pokemon_id = ?
+                ORDER BY l.name
+            ''', (pokemon_id,))
+            locations = []
+            for location_row in cursor.fetchall():
+                location_name, region, location_description = location_row
+                locations.append({
+                    'name': location_name,
+                    'region': region,
+                    'description': location_description
+                })
+            
+            # Assembler toutes les données
+            pokemon_data.append({
+                'id': pokemon_id,
+                'name': name,
+                'number': number,
+                'generation': generation,
+                'sprite_url': sprite_url,
+                'is_shiny_lock': bool(is_shiny_lock),
+                'high_quality_image': high_quality_image,
+                'description': description,
+                'created_at': created_at,
+                'general_methods': general_methods,
+                'specific_methods': specific_methods,
+                'games': games,
+                'locations': locations,
+                'total_general_methods': len(general_methods),
+                'total_specific_methods': len(specific_methods),
+                'total_games': len(games),
+                'total_locations': len(locations)
+            })
+        
+        # Statistiques générales
+        cursor.execute('SELECT COUNT(*) FROM pokemon')
+        total_pokemon = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM games')
+        total_games = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM hunt_methods')
+        total_methods = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM locations')
+        total_locations = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM pokemon_general_methods')
+        total_general_associations = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM pokemon_specific_methods')
+        total_specific_associations = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM pokemon_games')
+        total_pokemon_games = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        # Préparer les données
+        debug_data = {
+            'statistics': {
+                'total_pokemon': total_pokemon,
+                'total_games': total_games,
+                'total_hunt_methods': total_methods,
+                'total_locations': total_locations,
+                'total_general_method_associations': total_general_associations,
+                'total_specific_method_associations': total_specific_associations,
+                'total_pokemon_game_associations': total_pokemon_games
+            },
+            'pokemon': pokemon_data
+        }
+        
+        # Retourner selon le format demandé
+        if format_type == 'json':
+            return jsonify(debug_data)
+        else:
+            # Retourner le template HTML
+            return render_template('debug.html', 
+                                 statistics=debug_data['statistics'],
+                                 pokemon_data=pokemon_data)
+        
+    except Exception as e:
+        if request.args.get('format') == 'json':
+            return jsonify({'error': str(e)}), 500
+        else:
+            return render_template('error.html', error=str(e)), 500
+
 if __name__ == '__main__':
     print("🌟 Démarrage du serveur Pokemon Dashboard...")
     print("📊 Accédez au dashboard sur: http://localhost:5000")
